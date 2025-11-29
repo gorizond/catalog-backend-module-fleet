@@ -188,6 +188,14 @@ export function mapGitRepoToComponent(
 
   const targets =
     gitRepo.spec?.targets?.map((t) => t.name).filter(Boolean) ?? [];
+  const targetClusterNames = [
+    ...(gitRepo.spec?.targets
+      ?.map((t) => t.clusterName || t.name)
+      .filter(Boolean) ?? []),
+    ...(gitRepo.spec?.targetCustomizations
+      ?.map((t) => t.clusterName || t.name)
+      .filter(Boolean) ?? []),
+  ].filter(Boolean) as string[];
   const status = gitRepo.status?.display?.state ?? "Unknown";
 
   const descriptionFromRepo =
@@ -219,7 +227,9 @@ export function mapGitRepoToComponent(
   }
 
   // Kubernetes integration - link to Fleet cluster
-  annotations[ANNOTATION_KUBERNETES_ID] = context.cluster.name;
+  const kubernetesClusterId =
+    targetClusterNames[0] ?? context.cluster.name ?? "default";
+  annotations[ANNOTATION_KUBERNETES_ID] = kubernetesClusterId;
   const kubeNamespace = deriveKubernetesNamespace(
     fleetYaml,
     gitRepo.metadata?.namespace,
