@@ -347,7 +347,7 @@ describe("mapGitRepoToComponent", () => {
       "fleet-default",
     );
     expect(annotations["backstage.io/kubernetes-label-selector"]).toBe(
-      "app.kubernetes.io/instance=my-app",
+      "app.kubernetes.io/name=my-app",
     );
   });
 

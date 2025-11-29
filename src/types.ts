@@ -110,6 +110,29 @@ export interface GitRepoStatus {
   commit?: string;
   lastSyncedImageScanTime?: string;
   observedGeneration?: number;
+  perClusterResourceCounts?: Record<
+    string,
+    {
+      desiredReady?: number;
+      ready?: number;
+      missing?: number;
+      modified?: number;
+      notReady?: number;
+      orphaned?: number;
+      unknown?: number;
+      waitApplied?: number;
+    }
+  >;
+  resources?: Array<{
+    apiVersion?: string;
+    kind?: string;
+    name?: string;
+    namespace?: string;
+    id?: string;
+    type?: string;
+    state?: string;
+    perClusterState?: Record<string, string[]>;
+  }>;
 }
 
 export interface FleetGitRepo {

@@ -130,11 +130,31 @@ function deriveKubernetesNamespace(fleetYaml?: FleetYaml, fallback?: string) {
   );
 }
 
-function deriveKubernetesSelector(
-  helmReleaseName?: string,
-): string | undefined {
-  if (!helmReleaseName) return undefined;
-  return `app.kubernetes.io/instance=${helmReleaseName}`;
+function deriveNamespaceFromStatus(gitRepo: FleetGitRepo): string | undefined {
+  const resources = gitRepo.status?.resources ?? [];
+  for (const r of resources) {
+    if (r.namespace) return r.namespace;
+  }
+  return undefined;
+}
+
+function deriveDownstreamClusters(gitRepo: FleetGitRepo): string[] {
+  const counts = gitRepo.status?.perClusterResourceCounts ?? {};
+  const clusterIds = Object.keys(counts)
+    .map((k) => k.split("/").pop())
+    .filter(Boolean) as string[];
+  if (clusterIds.length > 0) return clusterIds;
+
+  const resources = gitRepo.status?.resources ?? [];
+  const perCluster = new Set<string>();
+  for (const r of resources) {
+    const pcs = r.perClusterState ?? {};
+    Object.keys(pcs).forEach((k) => {
+      const id = k.split("/").pop();
+      if (id) perCluster.add(id);
+    });
+  }
+  return Array.from(perCluster);
 }
 
 // ============================================================================
@@ -226,6 +246,7 @@ export function mapGitRepoToComponent(
       .filter(Boolean) ?? []),
   ].filter(Boolean) as string[];
   const status = gitRepo.status?.display?.state ?? "Unknown";
+  const downstreamClusters = deriveDownstreamClusters(gitRepo);
 
   const descriptionFromRepo =
     gitRepo.metadata?.annotations?.["field.cattle.io/description"] ??
@@ -258,16 +279,19 @@ export function mapGitRepoToComponent(
 
   // Kubernetes integration - link to Fleet cluster
   const kubernetesClusterId =
-    targetClusterNames[0] ?? context.cluster.name ?? "default";
+    downstreamClusters[0] ??
+    targetClusterNames[0] ??
+    context.cluster.name ??
+    "default";
   annotations[ANNOTATION_KUBERNETES_ID] = kubernetesClusterId;
 
-  const kubeNamespace = deriveKubernetesNamespace(
-    fleetYaml,
-    gitRepo.metadata?.namespace,
-  );
+  const kubeNamespace =
+    deriveNamespaceFromStatus(gitRepo) ??
+    deriveKubernetesNamespace(fleetYaml, gitRepo.metadata?.namespace);
   const helmReleaseName =
     fleetYaml?.helm?.releaseName ?? gitRepo.metadata?.name;
-  const kubeSelector = deriveKubernetesSelector(helmReleaseName);
+  const kubeSelector =
+    helmReleaseName && `app.kubernetes.io/name=${helmReleaseName}`;
 
   if (kubeNamespace) {
     annotations[ANNOTATION_KUBERNETES_NAMESPACE] = kubeNamespace;
