@@ -1,0 +1,56 @@
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# Build output
+dist/
+build/
+*.tsbuildinfo
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+lerna-debug.log*
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Test coverage
+coverage/
+.nyc_output/
+
+# Package manager locks (keep only one)
+# Uncomment the one you're NOT using:
+# package-lock.json
+# yarn.lock
+
+# Temporary files
+tmp/
+temp/
+.tmp/
+.temp/
+
+# Cache
+.cache/
+.eslintcache
+.npm/
+
+# Editor backup files
+*.bak
+*.backup

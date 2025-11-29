@@ -1,0 +1,616 @@
+/**
+ * Entity Mapper
+ * Converts Fleet Custom Resources to Backstage Catalog Entities
+ *
+ * Mapping:
+ * - Fleet Rancher Cluster (config) → System (rancher.example.com)
+ * - GitRepo → Component (type: service)
+ * - Bundle → Resource (type: fleet-bundle)
+ */
+
+import {
+  Entity,
+  ANNOTATION_LOCATION,
+  ANNOTATION_ORIGIN_LOCATION,
+  ANNOTATION_SOURCE_LOCATION,
+  stringifyEntityRef,
+} from "@backstage/catalog-model";
+import type { JsonObject } from "@backstage/types";
+
+import {
+  FleetGitRepo,
+  FleetBundle,
+  FleetBundleDeployment,
+  FleetYaml,
+  FleetYamlApiDefinition,
+  FleetClusterConfig,
+  BundleDependsOn,
+  statusToLifecycle,
+} from "./types";
+
+// ============================================================================
+// Constants
+// ============================================================================
+
+const FLEET_ANNOTATION_PREFIX = "fleet.cattle.io";
+
+export const ANNOTATION_FLEET_REPO = `${FLEET_ANNOTATION_PREFIX}/repo`;
+export const ANNOTATION_FLEET_BRANCH = `${FLEET_ANNOTATION_PREFIX}/branch`;
+export const ANNOTATION_FLEET_NAMESPACE = `${FLEET_ANNOTATION_PREFIX}/namespace`;
+export const ANNOTATION_FLEET_TARGETS = `${FLEET_ANNOTATION_PREFIX}/targets`;
+export const ANNOTATION_FLEET_REPO_NAME = `${FLEET_ANNOTATION_PREFIX}/repo-name`;
+export const ANNOTATION_FLEET_BUNDLE_PATH = `${FLEET_ANNOTATION_PREFIX}/bundle-path`;
+export const ANNOTATION_FLEET_STATUS = `${FLEET_ANNOTATION_PREFIX}/status`;
+export const ANNOTATION_FLEET_READY_CLUSTERS = `${FLEET_ANNOTATION_PREFIX}/ready-clusters`;
+export const ANNOTATION_FLEET_CLUSTER = `${FLEET_ANNOTATION_PREFIX}/cluster`;
+export const ANNOTATION_FLEET_SOURCE_GITREPO = `${FLEET_ANNOTATION_PREFIX}/source-gitrepo`;
+export const ANNOTATION_FLEET_SOURCE_BUNDLE = `${FLEET_ANNOTATION_PREFIX}/source-bundle`;
+
+// Backstage Kubernetes integration annotations
+export const ANNOTATION_KUBERNETES_ID = "backstage.io/kubernetes-id";
+export const ANNOTATION_KUBERNETES_NAMESPACE =
+  "backstage.io/kubernetes-namespace";
+export const ANNOTATION_KUBERNETES_LABEL_SELECTOR =
+  "backstage.io/kubernetes-label-selector";
+
+// ============================================================================
+// Entity Naming
+// ============================================================================
+
+/**
+ * Convert a name to Backstage-safe entity name
+ * Must match: [a-z0-9]+(-[a-z0-9]+)*
+ */
+export function toBackstageName(value: string): string {
+  const clean = value
+    .toLowerCase()
+    .replace(/[^a-z0-9-]/g, "-")
+    .replace(/--+/g, "-")
+    .replace(/^-+/, "")
+    .replace(/-+$/, "");
+
+  // Ensure non-empty and max 63 chars
+  const result = clean || "fleet-entity";
+  return result.slice(0, 63);
+}
+
+/**
+ * Create entity namespace from Fleet namespace
+ */
+export function toEntityNamespace(fleetNamespace: string): string {
+  return toBackstageName(fleetNamespace);
+}
+
+// ============================================================================
+// Mapper Context
+// ============================================================================
+
+export interface MapperContext {
+  cluster: FleetClusterConfig;
+  locationKey: string;
+  fleetYaml?: FleetYaml;
+}
+
+// ============================================================================
+// Fleet Cluster (config) → System
+// Represents the Rancher Fleet management cluster (e.g., rancher.example.com)
+// ============================================================================
+
+export function mapFleetClusterToSystem(
+  context: MapperContext,
+  entityNamespace: string = "default",
+): Entity {
+  const cluster = context.cluster;
+  const name = toBackstageName(cluster.name);
+
+  // Extract hostname from URL for description
+  let hostname = cluster.url;
+  try {
+    hostname = new URL(cluster.url).hostname;
+  } catch {
+    // Keep original URL if parsing fails
+  }
+
+  const description = `Fleet Rancher Cluster: ${hostname}`;
+
+  const annotations: Record<string, string> = {
+    [ANNOTATION_LOCATION]: context.locationKey,
+    [ANNOTATION_ORIGIN_LOCATION]: context.locationKey,
+    [ANNOTATION_FLEET_CLUSTER]: cluster.name,
+    [`${FLEET_ANNOTATION_PREFIX}/url`]: cluster.url,
+  };
+
+  // Add namespace list
+  const namespaceNames = cluster.namespaces.map((ns) => ns.name);
+  annotations[`${FLEET_ANNOTATION_PREFIX}/namespaces`] =
+    namespaceNames.join(",");
+
+  const tags = ["fleet", "rancher", "gitops"];
+
+  return {
+    apiVersion: "backstage.io/v1alpha1",
+    kind: "System",
+    metadata: {
+      name,
+      namespace: entityNamespace,
+      description,
+      annotations,
+      tags,
+      links: [{ url: cluster.url, title: "Rancher Fleet" }],
+    },
+    spec: {
+      owner: "platform-team",
+    },
+  };
+}
+
+// ============================================================================
+// GitRepo → Component (type: service)
+// ============================================================================
+
+export function mapGitRepoToComponent(
+  gitRepo: FleetGitRepo,
+  context: MapperContext,
+): Entity {
+  const name = toBackstageName(gitRepo.metadata?.name ?? "fleet-gitrepo");
+  const namespace = toEntityNamespace(
+    gitRepo.metadata?.namespace ?? "fleet-default",
+  );
+  const fleetYaml = context.fleetYaml;
+
+  const targets =
+    gitRepo.spec?.targets?.map((t) => t.name).filter(Boolean) ?? [];
+  const status = gitRepo.status?.display?.state ?? "Unknown";
+
+  const description =
+    fleetYaml?.backstage?.description ??
+    gitRepo.metadata?.annotations?.["description"] ??
+    `Fleet GitRepo: ${gitRepo.spec?.repo ?? "unknown"}`;
+
+  const annotations: Record<string, string> = {
+    [ANNOTATION_LOCATION]: context.locationKey,
+    [ANNOTATION_ORIGIN_LOCATION]: context.locationKey,
+    [ANNOTATION_FLEET_REPO]: gitRepo.spec?.repo ?? "",
+    [ANNOTATION_FLEET_BRANCH]: gitRepo.spec?.branch ?? "main",
+    [ANNOTATION_FLEET_NAMESPACE]: gitRepo.metadata?.namespace ?? "",
+    [ANNOTATION_FLEET_CLUSTER]: context.cluster.name,
+    [ANNOTATION_FLEET_STATUS]: status,
+  };
+
+  if (targets.length > 0) {
+    annotations[ANNOTATION_FLEET_TARGETS] = JSON.stringify(targets);
+  }
+
+  if (gitRepo.spec?.repo) {
+    annotations[ANNOTATION_SOURCE_LOCATION] = `url:${gitRepo.spec.repo}`;
+  }
+
+  if (gitRepo.status?.display?.readyClusters) {
+    annotations[ANNOTATION_FLEET_READY_CLUSTERS] =
+      gitRepo.status.display.readyClusters;
+  }
+
+  // Kubernetes integration - link to Fleet cluster
+  annotations[ANNOTATION_KUBERNETES_ID] = context.cluster.name;
+
+  // Merge custom annotations from fleet.yaml
+  if (fleetYaml?.annotations) {
+    Object.assign(annotations, fleetYaml.annotations);
+  }
+  if (fleetYaml?.backstage?.annotations) {
+    Object.assign(annotations, fleetYaml.backstage.annotations);
+  }
+
+  const tags = ["fleet", "gitops", ...(fleetYaml?.backstage?.tags ?? [])];
+
+  const links: Array<{ url: string; title: string }> = [];
+  if (gitRepo.spec?.repo) {
+    links.push({ url: gitRepo.spec.repo, title: "Git Repository" });
+  }
+
+  // Build dependsOn relations from fleet.yaml
+  const dependsOn: string[] = [];
+  if (fleetYaml?.backstage?.dependsOn) {
+    dependsOn.push(...fleetYaml.backstage.dependsOn);
+  }
+  if (fleetYaml?.dependsOn) {
+    dependsOn.push(...mapFleetDependsOn(fleetYaml.dependsOn, namespace));
+  }
+
+  // Build API relations
+  const providesApis: string[] = [];
+  const consumesApis: string[] = [];
+
+  if (fleetYaml?.backstage?.providesApis) {
+    for (const api of fleetYaml.backstage.providesApis) {
+      const apiRef = stringifyEntityRef({
+        kind: "API",
+        namespace,
+        name: toBackstageName(api.name),
+      });
+      providesApis.push(apiRef);
+    }
+  }
+
+  if (fleetYaml?.backstage?.consumesApis) {
+    consumesApis.push(...fleetYaml.backstage.consumesApis);
+  }
+
+  // System relation to parent Fleet Cluster
+  const system = stringifyEntityRef({
+    kind: "System",
+    namespace: "default",
+    name: toBackstageName(context.cluster.name),
+  });
+
+  // Use 'service' type for full Backstage integration (Kubernetes tab, etc.)
+  // Can be overridden via fleet.yaml backstage.type
+  const spec: JsonObject = {
+    type: fleetYaml?.backstage?.type ?? "service",
+    lifecycle: statusToLifecycle(status),
+    owner: fleetYaml?.backstage?.owner ?? "unknown",
+    system,
+  };
+
+  if (dependsOn.length > 0) {
+    spec.dependsOn = [...new Set(dependsOn)];
+  }
+  if (providesApis.length > 0) {
+    spec.providesApis = providesApis;
+  }
+  if (consumesApis.length > 0) {
+    spec.consumesApis = consumesApis;
+  }
+
+  return {
+    apiVersion: "backstage.io/v1alpha1",
+    kind: "Component",
+    metadata: {
+      name,
+      namespace,
+      description,
+      annotations,
+      tags: [...new Set(tags)],
+      links,
+    },
+    spec,
+  };
+}
+
+// ============================================================================
+// Bundle → Resource (type: fleet-bundle)
+// ============================================================================
+
+export function mapBundleToResource(
+  bundle: FleetBundle,
+  context: MapperContext,
+): Entity {
+  const name = toBackstageName(bundle.metadata?.name ?? "fleet-bundle");
+  const namespace = toEntityNamespace(
+    bundle.metadata?.namespace ?? "fleet-default",
+  );
+  const fleetYaml = context.fleetYaml;
+
+  const gitRepoName = bundle.metadata?.labels?.["fleet.cattle.io/repo-name"];
+  const bundlePath = bundle.metadata?.labels?.["fleet.cattle.io/bundle-path"];
+  const status = bundle.status?.display?.state ?? "Unknown";
+
+  const description =
+    fleetYaml?.backstage?.description ??
+    `Fleet Bundle: ${bundle.metadata?.name ?? "unknown"}`;
+
+  const annotations: Record<string, string> = {
+    [ANNOTATION_LOCATION]: context.locationKey,
+    [ANNOTATION_ORIGIN_LOCATION]: context.locationKey,
+    [ANNOTATION_FLEET_STATUS]: status,
+    [ANNOTATION_FLEET_CLUSTER]: context.cluster.name,
+  };
+
+  if (gitRepoName) {
+    annotations[ANNOTATION_FLEET_REPO_NAME] = gitRepoName;
+    annotations[ANNOTATION_FLEET_SOURCE_GITREPO] = gitRepoName;
+  }
+  if (bundlePath) {
+    annotations[ANNOTATION_FLEET_BUNDLE_PATH] = bundlePath;
+  }
+  if (bundle.status?.display?.readyClusters) {
+    annotations[ANNOTATION_FLEET_READY_CLUSTERS] =
+      bundle.status.display.readyClusters;
+  }
+
+  // Kubernetes integration annotations for Backstage K8s plugin
+  const defaultNamespace =
+    fleetYaml?.defaultNamespace ?? fleetYaml?.namespace ?? "default";
+  const helmReleaseName = fleetYaml?.helm?.releaseName ?? bundle.metadata?.name;
+
+  annotations[ANNOTATION_KUBERNETES_ID] = context.cluster.name;
+  annotations[ANNOTATION_KUBERNETES_NAMESPACE] = defaultNamespace;
+  if (helmReleaseName) {
+    annotations[ANNOTATION_KUBERNETES_LABEL_SELECTOR] =
+      `app.kubernetes.io/instance=${helmReleaseName}`;
+  }
+
+  // Merge custom annotations from fleet.yaml
+  if (fleetYaml?.annotations) {
+    Object.assign(annotations, fleetYaml.annotations);
+  }
+  if (fleetYaml?.backstage?.annotations) {
+    Object.assign(annotations, fleetYaml.backstage.annotations);
+  }
+
+  const tags = ["fleet", "fleet-bundle", ...(fleetYaml?.backstage?.tags ?? [])];
+
+  // Build dependsOn relations - Bundle depends on its parent GitRepo (Component)
+  const dependsOn: string[] = [];
+
+  if (gitRepoName) {
+    dependsOn.push(
+      stringifyEntityRef({
+        kind: "Component",
+        namespace,
+        name: toBackstageName(gitRepoName),
+      }),
+    );
+  }
+
+  // From Fleet bundle dependsOn
+  if (bundle.spec?.dependsOn) {
+    dependsOn.push(
+      ...mapFleetDependsOnToResource(bundle.spec.dependsOn, namespace),
+    );
+  }
+
+  // From fleet.yaml dependsOn (Fleet native)
+  if (fleetYaml?.dependsOn) {
+    dependsOn.push(
+      ...mapFleetDependsOnToResource(fleetYaml.dependsOn, namespace),
+    );
+  }
+
+  const spec: JsonObject = {
+    type: "fleet-bundle",
+    owner: fleetYaml?.backstage?.owner ?? "unknown",
+  };
+
+  if (dependsOn.length > 0) {
+    spec.dependsOn = [...new Set(dependsOn)];
+  }
+
+  return {
+    apiVersion: "backstage.io/v1alpha1",
+    kind: "Resource",
+    metadata: {
+      name,
+      namespace,
+      description,
+      annotations,
+      tags: [...new Set(tags)],
+    },
+    spec,
+  };
+}
+
+// ============================================================================
+// BundleDeployment → Resource (per-cluster deployment status)
+// ============================================================================
+
+export function mapBundleDeploymentToResource(
+  bundleDeployment: FleetBundleDeployment,
+  clusterId: string,
+  context: MapperContext,
+): Entity {
+  const bdName = bundleDeployment.metadata?.name ?? "fleet-bundle-deployment";
+  const name = toBackstageName(`${bdName}-${clusterId}`);
+  const namespace = toEntityNamespace(
+    bundleDeployment.metadata?.namespace ?? "fleet-default",
+  );
+
+  const status = bundleDeployment.status?.display?.state ?? "Unknown";
+  const description = `Fleet deployment: ${bdName} on cluster ${clusterId}`;
+
+  const annotations: Record<string, string> = {
+    [ANNOTATION_LOCATION]: context.locationKey,
+    [ANNOTATION_ORIGIN_LOCATION]: context.locationKey,
+    [ANNOTATION_FLEET_STATUS]: status,
+    [ANNOTATION_FLEET_CLUSTER]: clusterId,
+    [`${FLEET_ANNOTATION_PREFIX}/bundle-deployment`]: bdName,
+  };
+
+  if (bundleDeployment.status?.display?.message) {
+    annotations[`${FLEET_ANNOTATION_PREFIX}/message`] =
+      bundleDeployment.status.display.message.slice(0, 500);
+  }
+
+  // Extract bundle name from labels
+  const bundleName =
+    bundleDeployment.metadata?.labels?.["fleet.cattle.io/bundle-name"];
+  if (bundleName) {
+    annotations[ANNOTATION_FLEET_SOURCE_BUNDLE] = bundleName;
+  }
+
+  // BundleDeployment depends on the Bundle (Resource)
+  const dependsOn: string[] = [];
+  if (bundleName) {
+    dependsOn.push(
+      stringifyEntityRef({
+        kind: "Resource",
+        namespace,
+        name: toBackstageName(bundleName),
+      }),
+    );
+  }
+
+  return {
+    apiVersion: "backstage.io/v1alpha1",
+    kind: "Resource",
+    metadata: {
+      name,
+      namespace,
+      description,
+      annotations,
+      tags: [
+        "fleet",
+        "fleet-deployment",
+        `cluster-${toBackstageName(clusterId)}`,
+      ],
+    },
+    spec: {
+      type: "fleet-deployment",
+      owner: context.fleetYaml?.backstage?.owner ?? "unknown",
+      dependsOn: dependsOn.length > 0 ? dependsOn : undefined,
+    },
+  };
+}
+
+// ============================================================================
+// API Entity Generation (from fleet.yaml providesApis)
+// ============================================================================
+
+export function mapApiDefinitionToApi(
+  apiDef: FleetYamlApiDefinition,
+  gitRepoName: string,
+  context: MapperContext,
+): Entity {
+  const name = toBackstageName(apiDef.name);
+  const namespace = toEntityNamespace(
+    context.fleetYaml?.defaultNamespace ?? "fleet-default",
+  );
+
+  const description =
+    apiDef.description ?? `API ${apiDef.name} provided by ${gitRepoName}`;
+
+  const annotations: Record<string, string> = {
+    [ANNOTATION_LOCATION]: context.locationKey,
+    [ANNOTATION_ORIGIN_LOCATION]: context.locationKey,
+    [ANNOTATION_FLEET_SOURCE_GITREPO]: gitRepoName,
+  };
+
+  if (apiDef.definitionUrl) {
+    annotations[`${FLEET_ANNOTATION_PREFIX}/definition-url`] =
+      apiDef.definitionUrl;
+  }
+
+  // Determine API definition
+  let definition = apiDef.definition ?? "";
+  if (!definition && apiDef.definitionUrl) {
+    definition = `# API definition from: ${apiDef.definitionUrl}`;
+  }
+  if (!definition) {
+    definition = `# No definition provided for ${apiDef.name}`;
+  }
+
+  return {
+    apiVersion: "backstage.io/v1alpha1",
+    kind: "API",
+    metadata: {
+      name,
+      namespace,
+      description,
+      annotations,
+      tags: ["fleet", "fleet-api"],
+    },
+    spec: {
+      type: apiDef.type ?? "openapi",
+      lifecycle: statusToLifecycle(undefined),
+      owner: context.fleetYaml?.backstage?.owner ?? "unknown",
+      definition,
+    },
+  };
+}
+
+// ============================================================================
+// Helper Functions
+// ============================================================================
+
+/**
+ * Map Fleet dependsOn to Backstage Component entity references
+ */
+function mapFleetDependsOn(
+  fleetDependsOn: BundleDependsOn[],
+  namespace: string,
+): string[] {
+  const refs: string[] = [];
+
+  for (const dep of fleetDependsOn) {
+    if (dep.name) {
+      refs.push(
+        stringifyEntityRef({
+          kind: "Component",
+          namespace,
+          name: toBackstageName(dep.name),
+        }),
+      );
+    }
+  }
+
+  return refs;
+}
+
+/**
+ * Map Fleet dependsOn to Backstage Resource entity references (for Bundles)
+ */
+function mapFleetDependsOnToResource(
+  fleetDependsOn: BundleDependsOn[],
+  namespace: string,
+): string[] {
+  const refs: string[] = [];
+
+  for (const dep of fleetDependsOn) {
+    if (dep.name) {
+      refs.push(
+        stringifyEntityRef({
+          kind: "Resource",
+          namespace,
+          name: toBackstageName(dep.name),
+        }),
+      );
+    }
+  }
+
+  return refs;
+}
+
+/**
+ * Extract entity metadata from bundle labels
+ */
+export function extractBundleMetadata(bundle: FleetBundle): {
+  gitRepoName?: string;
+  bundlePath?: string;
+  commitId?: string;
+} {
+  const labels = bundle.metadata?.labels ?? {};
+  return {
+    gitRepoName: labels["fleet.cattle.io/repo-name"],
+    bundlePath: labels["fleet.cattle.io/bundle-path"],
+    commitId: labels["fleet.cattle.io/commit"],
+  };
+}
+
+// ============================================================================
+// Entity Generation Batch Functions
+// ============================================================================
+
+export interface EntityBatch {
+  systems: Entity[];
+  components: Entity[];
+  resources: Entity[];
+  apis: Entity[];
+}
+
+export function createEmptyBatch(): EntityBatch {
+  return {
+    systems: [],
+    components: [],
+    resources: [],
+    apis: [],
+  };
+}
+
+export function flattenBatch(batch: EntityBatch): Entity[] {
+  return [
+    ...batch.systems,
+    ...batch.components,
+    ...batch.resources,
+    ...batch.apis,
+  ];
+}
