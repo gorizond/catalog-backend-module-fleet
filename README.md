@@ -76,52 +76,35 @@ export default async function createPlugin(env: PluginEnvironment) {
 
 Add to your `app-config.yaml`:
 
-### Simple Configuration
+### Configuration (single cluster)
 
 ```yaml
 catalog:
   providers:
     fleet:
-      name: rancher-prod
-      url: https://rancher.example.com/k8s/clusters/local
-      token: ${FLEET_TOKEN}
-      namespaces:
-        - fleet-default
-      schedule:
-        frequency:
-          minutes: 10
-        timeout:
-          minutes: 5
-```
-
-### Full Configuration
-
-```yaml
-catalog:
-  providers:
-    fleet:
-      name: rancher-prod
-      url: https://rancher.example.com/k8s/clusters/local
-      token: ${FLEET_TOKEN}
-      caData: ${FLEET_CA_DATA}        # Optional: CA certificate
-      skipTLSVerify: false            # Optional: Skip TLS verification
-      namespaces:
-        - fleet-default
-        - fleet-local
-      includeBundles: true            # Include Bundle entities (default: true)
-      includeBundleDeployments: false # Include per-cluster deployments (default: false)
-      generateApis: false             # Generate API entities from fleet.yaml (default: false)
-      fetchFleetYaml: false           # Fetch fleet.yaml from Git (default: false)
-      gitRepoSelector:                # Optional: Filter GitRepos by labels
-        matchLabels:
-          backstage.io/discover: "true"
-      schedule:
-        frequency:
-          minutes: 10
-        timeout:
-          minutes: 5
-        initialDelay:
-          seconds: 15
+      production:
+        name: rancher-prod
+        url: https://rancher.example.com/k8s/clusters/local
+        token: ${FLEET_TOKEN}
+        caData: ${FLEET_CA_DATA}        # Optional: CA certificate
+        skipTLSVerify: false            # Optional: Skip TLS verification
+        namespaces:
+          - fleet-default
+          - fleet-local
+        includeBundles: true            # Include Bundle entities (default: true)
+        includeBundleDeployments: false # Include per-cluster deployments (default: false)
+        generateApis: false             # Generate API entities from fleet.yaml (default: false)
+        fetchFleetYaml: false           # Fetch fleet.yaml from Git (default: false)
+        gitRepoSelector:                # Optional: Filter GitRepos by labels
+          matchLabels:
+            backstage.io/discover: "true"
+        schedule:
+          frequency:
+            minutes: 10
+          timeout:
+            minutes: 5
+          initialDelay:
+            seconds: 15
 ```
 
 ### Multi-Cluster Configuration
@@ -148,6 +131,8 @@ catalog:
           timeout:
             minutes: 5
 ```
+
+`fetchFleetYaml: true` — дополнительно скачивает `fleet.yaml` из GitRepo (используя repo URL/branch) и применяет секцию `backstage` для обогащения метаданных (owner, type, description, tags, relations, providesApis/consumesApis). Без этого флага провайдер создаёт сущности только из CRD-данных Fleet.
 
 ## fleet.yaml Integration
 
