@@ -14,6 +14,7 @@ import {
 } from "@backstage/backend-plugin-api";
 import { catalogProcessingExtensionPoint } from "@backstage/plugin-catalog-node/alpha";
 import { FleetEntityProvider } from "./provider";
+import { FleetK8sLocator } from "./k8sLocator";
 
 /**
  * Catalog backend module that provides Fleet entities.
@@ -95,6 +96,7 @@ export const catalogModuleFleet = createBackendModule({
       },
       async init({ catalog, config, logger, scheduler }) {
         const providers = FleetEntityProvider.fromConfig(config, { logger });
+        const k8sLocator = FleetK8sLocator.fromConfig({ config, logger });
 
         if (providers.length === 0) {
           logger.info(
@@ -124,6 +126,20 @@ export const catalogModuleFleet = createBackendModule({
           logger.info(
             `Registered Fleet entity provider: ${provider.getProviderName()}`,
           );
+        }
+
+        if (k8sLocator) {
+          try {
+            const clusters = await k8sLocator.listClusters();
+            logger.info(
+              `FleetK8sLocator discovered ${clusters.length} Kubernetes clusters`,
+            );
+            logger.debug(
+              `FleetK8sLocator clusters: ${JSON.stringify(clusters, null, 2)}`,
+            );
+          } catch (error) {
+            logger.warn(`FleetK8sLocator failed: ${error}`);
+          }
         }
       },
     });
