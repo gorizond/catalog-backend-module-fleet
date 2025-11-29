@@ -220,6 +220,39 @@ Behavior defaults
 - TechDocs: `backstage.io/techdocs-ref` авто `dir:.` (выкл через `autoTechdocsRef: false`).
 - Kubernetes аннотации: `kubernetes-id` берётся из targets/targetCustomizations clusterName/name (иначе имя Fleet кластера), namespace — `defaultNamespace/namespace` из `fleet.yaml` или namespace GitRepo, selector — по `helm.releaseName` или имени GitRepo.
 
+### Kubernetes Cluster Locator (optional)
+
+Модуль может динамически собирать кластеры из Rancher и отдавать `clusterLocatorMethods` (type: config) для плагина Kubernetes. Включение:
+
+```yaml
+catalog:
+  providers:
+    fleetK8sLocator:
+      enabled: true
+      rancherUrl: https://rancher.example.com
+      rancherToken: ${RANCHER_TOKEN}   # токен с доступом ко всем downstream
+      skipTLSVerify: false
+      includeLocal: true
+```
+
+Использование в Kubernetes backend (пример new backend system):
+
+```ts
+import { FleetK8sLocator } from '@gorizond/catalog-backend-module-fleet';
+
+const locator = FleetK8sLocator.fromConfig({ config, logger });
+const clusterLocatorMethods = locator
+  ? await locator.asClusterLocatorMethods()
+  : [];
+
+kubernetesPlugin.addRouter({
+  // ...
+  clusterLocatorMethods, // type: config, заполняется локатором
+});
+```
+
+Если не подключать — kube конфиг остаётся статичным. Локатор только логирует найденные кластеры, когда включён.
+
 ## Development
 
 ```bash
