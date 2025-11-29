@@ -95,6 +95,7 @@ catalog:
         includeBundleDeployments: false # Include per-cluster deployments (default: false)
         generateApis: false             # Generate API entities from fleet.yaml (default: false)
         fetchFleetYaml: false           # Fetch fleet.yaml from Git (default: false)
+        autoTechdocsRef: true           # Auto-set backstage.io/techdocs-ref: dir:. (default: true)
         gitRepoSelector:                # Optional: Filter GitRepos by labels
           matchLabels:
             backstage.io/discover: "true"
@@ -133,6 +134,7 @@ catalog:
 ```
 
 `fetchFleetYaml: true` — дополнительно скачивает `fleet.yaml` из GitRepo (используя repo URL/branch) и применяет секцию `backstage` для обогащения метаданных (owner, type, description, tags, relations, providesApis/consumesApis). Без этого флага провайдер создаёт сущности только из CRD-данных Fleet.
+`autoTechdocsRef: true` — ставит `backstage.io/techdocs-ref: dir:.` автоматически, если в аннотациях нет явного значения.
 
 ## fleet.yaml Integration
 
@@ -168,6 +170,8 @@ backstage:
     - api:default/auth-api
   annotations:
     pagerduty.com/integration-key: "abc123"
+dependsOn:
+  - name: db                       # Fleet native dependsOn (optional)
 ```
 
 ## Annotations
@@ -184,7 +188,10 @@ Entities are annotated with Fleet metadata for integration with other Backstage 
 | `fleet.cattle.io/cluster` | Fleet management cluster name |
 | `fleet.cattle.io/status` | Current status (Ready, NotReady, etc.) |
 | `fleet.cattle.io/ready-clusters` | Ready clusters count (e.g., "3/3") |
+| `backstage.io/techdocs-ref` | Auto set to `dir:.` (can be overridden) |
 | `backstage.io/kubernetes-id` | Kubernetes plugin integration |
+| `backstage.io/kubernetes-namespace` | Target namespace (from fleet.yaml or GitRepo namespace) |
+| `backstage.io/kubernetes-label-selector` | Helm release selector (`app.kubernetes.io/instance=...`) |
 
 ### Resource (Bundle) Annotations
 
@@ -206,6 +213,12 @@ Entities are automatically annotated for the Backstage Kubernetes plugin:
 - `backstage.io/kubernetes-label-selector`: Helm release selector
 
 This enables the Kubernetes tab in Backstage to show pods, deployments, and other resources for Fleet-managed applications.
+
+Behavior defaults
+- Description: из GitRepo аннотации `description`; если `fetchFleetYaml` и `backstage.description` — переопределяет.
+- Owner: из `backstage.owner`; иначе выводится из URL репо (`group:default/<owner>`); фолбэк `group:default/default`.
+- TechDocs: `backstage.io/techdocs-ref` авто `dir:.` (выкл через `autoTechdocsRef: false`).
+- Kubernetes аннотации: `kubernetes-id` берётся из targets/targetCustomizations clusterName/name (иначе имя Fleet кластера), namespace — `defaultNamespace/namespace` из `fleet.yaml` или namespace GitRepo, selector — по `helm.releaseName` или имени GitRepo.
 
 ## Development
 
