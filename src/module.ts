@@ -136,6 +136,9 @@ export const catalogModuleFleet = createBackendModule({
           try {
             const clusterMethods = await k8sLocator.asClusterLocatorMethods();
             const clusters = clusterMethods.flatMap((m) => m.clusters);
+            const hasServiceLocator = config.has(
+              "kubernetes.serviceLocatorMethod",
+            );
 
             logger.info(
               `FleetK8sLocator discovered ${clusters.length} Kubernetes clusters`,
@@ -146,6 +149,9 @@ export const catalogModuleFleet = createBackendModule({
             const k8sConfig = {
               kubernetes: {
                 clusterLocatorMethods: clusterMethods,
+                ...(hasServiceLocator
+                  ? {}
+                  : { serviceLocatorMethod: { type: "multiTenant" } }),
               },
             };
 
