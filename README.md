@@ -265,6 +265,115 @@ catalog:
 
 No manual cluster configuration needed!
 
+#### Hot reload without backend restarts
+
+If you want the Kubernetes backend to pick up Rancher clusters on the fly (without restarting Backstage), wire FleetK8sLocator into the Kubernetes cluster supplier extension point. An example module (see `packages/backend/src/modules/fleetKubernetesClusterSupplier.ts` in the sample app) looks like:
+
+```typescript
+// packages/backend/src/modules/fleetKubernetesClusterSupplier.ts
+import { ANNOTATION_KUBERNETES_AUTH_PROVIDER } from '@backstage/plugin-kubernetes-common';
+import {
+  KubernetesClustersSupplier,
+  KubernetesServiceLocator,
+  kubernetesClusterSupplierExtensionPoint,
+  kubernetesServiceLocatorExtensionPoint,
+} from '@backstage/plugin-kubernetes-node';
+import { Duration } from 'luxon';
+import { coreServices, createBackendModule } from '@backstage/backend-plugin-api';
+import { FleetK8sLocator } from '@gorizond/catalog-backend-module-fleet';
+
+export const kubernetesFleetClusterSupplierModule = createBackendModule({
+  pluginId: 'kubernetes',
+  moduleId: 'fleet-cluster-supplier',
+  register(env) {
+    env.registerInit({
+      deps: {
+        clusterSupplier: kubernetesClusterSupplierExtensionPoint,
+        serviceLocator: kubernetesServiceLocatorExtensionPoint,
+        config: coreServices.rootConfig,
+        logger: coreServices.logger,
+        scheduler: coreServices.scheduler,
+      },
+      async init({ clusterSupplier, serviceLocator, config, logger, scheduler }) {
+        const locator = FleetK8sLocator.fromConfig({ config, logger });
+        if (!locator) return;
+
+        let cache: KubernetesClustersSupplier['getClusters'] extends () => Promise<
+          infer T
+        >
+          ? T
+          : [] = [];
+
+        const refresh = async () => {
+          const clusters = await locator.listClusters();
+          cache = clusters.map(c => ({
+            name: c.name,
+            url: c.url,
+            caData: c.caData,
+            skipTLSVerify: c.skipTLSVerify,
+            authMetadata: {
+              [ANNOTATION_KUBERNETES_AUTH_PROVIDER]: c.authProvider ?? 'serviceAccount',
+              ...(c.serviceAccountToken ? { serviceAccountToken: c.serviceAccountToken } : {}),
+            },
+          }));
+        };
+
+        const supplier: KubernetesClustersSupplier = {
+          async getClusters() {
+            if (!cache.length) await refresh();
+            return cache;
+          },
+        };
+
+        clusterSupplier.addClusterSupplier(async () => {
+          await refresh();
+          return supplier;
+        });
+
+        // Provide a default multi-tenant service locator so kubernetes plugin
+        // does not require kubernetes.serviceLocatorMethod config.
+        const multiTenantLocator: KubernetesServiceLocator = {
+          async getClustersByEntity() {
+            const clusters = await supplier.getClusters();
+            return { clusters };
+          },
+        };
+        serviceLocator.addServiceLocator(multiTenantLocator);
+
+        const rawInterval = config.getOptionalString(
+          'catalog.providers.fleetK8sLocator.refreshInterval',
+        );
+        const frequency = rawInterval
+          ? Duration.fromISO(rawInterval)
+          : Duration.fromObject({ minutes: 5 });
+        const safeFrequency = frequency.isValid
+          ? frequency
+          : Duration.fromObject({ minutes: 5 });
+
+        await scheduler.scheduleTask({
+          id: 'fleet:k8sLocator:refresh',
+          frequency: safeFrequency,
+          timeout: Duration.fromObject({ minutes: 2 }),
+          initialDelay: Duration.fromObject({ seconds: 15 }),
+          fn: refresh,
+        });
+      },
+    });
+  },
+});
+```
+
+Then register the module alongside the Kubernetes backend:
+
+```typescript
+// packages/backend/src/index.ts
+backend.add(import('@backstage/plugin-kubernetes-backend'));
+backend.add(import('./modules/fleetKubernetesClusterSupplier'));
+```
+
+This keeps `kubernetes.clusterLocatorMethods` valid for startup while refreshing the cluster list from Rancher on a schedule.
+The module also injects default `kubernetes.serviceLocatorMethod.type=multiTenant` and an empty `clusterLocatorMethods` if they are missing, so Kubernetes plugin can start even with minimal config. The optional `catalog.providers.fleetK8sLocator.refreshInterval` accepts an ISO-8601 duration string (e.g. `PT5M`); default is 5 minutes if omitted or invalid.
+
 ## Development
 
 ```bash
