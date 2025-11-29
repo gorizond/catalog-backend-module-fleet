@@ -17,7 +17,6 @@ import {
   ANNOTATION_FLEET_STATUS,
   ANNOTATION_FLEET_CLUSTER,
   ANNOTATION_FLEET_NAMESPACE,
-  ANNOTATION_KUBERNETES_ID,
 } from "./entityMapper";
 import {
   FleetGitRepo,
@@ -336,13 +335,12 @@ describe("mapGitRepoToComponent", () => {
     expect(annotations[ANNOTATION_FLEET_NAMESPACE]).toBe("fleet-default");
   });
 
-  it("should include Kubernetes annotations (cluster/namespace/selector)", () => {
+  it("should include Kubernetes annotations (namespace/selector)", () => {
     const gitRepo = createMockGitRepo();
     const context = createMockContext();
     const entity = mapGitRepoToComponent(gitRepo, context);
     const annotations = entity.metadata.annotations as Record<string, string>;
 
-    expect(annotations[ANNOTATION_KUBERNETES_ID]).toBe("production");
     expect(annotations["backstage.io/kubernetes-namespace"]).toBe(
       "fleet-default",
     );
@@ -635,7 +633,6 @@ describe("mapBundleToResource", () => {
     const entity = mapBundleToResource(bundle, context);
     const annotations = entity.metadata.annotations as Record<string, string>;
 
-    expect(annotations[ANNOTATION_KUBERNETES_ID]).toBe("test-cluster");
     expect(annotations["backstage.io/kubernetes-namespace"]).toBe("my-app");
     expect(annotations["backstage.io/kubernetes-label-selector"]).toBe(
       "app.kubernetes.io/instance=my-app-release",

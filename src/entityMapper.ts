@@ -138,25 +138,6 @@ function deriveNamespaceFromStatus(gitRepo: FleetGitRepo): string | undefined {
   return undefined;
 }
 
-function deriveDownstreamClusters(gitRepo: FleetGitRepo): string[] {
-  const counts = gitRepo.status?.perClusterResourceCounts ?? {};
-  const clusterIds = Object.keys(counts)
-    .map((k) => k.split("/").pop())
-    .filter(Boolean) as string[];
-  if (clusterIds.length > 0) return clusterIds;
-
-  const resources = gitRepo.status?.resources ?? [];
-  const perCluster = new Set<string>();
-  for (const r of resources) {
-    const pcs = r.perClusterState ?? {};
-    Object.keys(pcs).forEach((k) => {
-      const id = k.split("/").pop();
-      if (id) perCluster.add(id);
-    });
-  }
-  return Array.from(perCluster);
-}
-
 // ============================================================================
 // Mapper Context
 // ============================================================================
@@ -237,16 +218,7 @@ export function mapGitRepoToComponent(
 
   const targets =
     gitRepo.spec?.targets?.map((t) => t.name).filter(Boolean) ?? [];
-  const targetClusterNames = [
-    ...(gitRepo.spec?.targets
-      ?.map((t) => t.clusterName || t.name)
-      .filter(Boolean) ?? []),
-    ...(gitRepo.spec?.targetCustomizations
-      ?.map((t) => t.clusterName || t.name)
-      .filter(Boolean) ?? []),
-  ].filter(Boolean) as string[];
   const status = gitRepo.status?.display?.state ?? "Unknown";
-  const downstreamClusters = deriveDownstreamClusters(gitRepo);
 
   const descriptionFromRepo =
     gitRepo.metadata?.annotations?.["field.cattle.io/description"] ??
@@ -276,14 +248,6 @@ export function mapGitRepoToComponent(
     annotations[ANNOTATION_FLEET_READY_CLUSTERS] =
       gitRepo.status.display.readyClusters;
   }
-
-  // Kubernetes integration - link to Fleet cluster
-  const kubernetesClusterId =
-    downstreamClusters[0] ??
-    targetClusterNames[0] ??
-    context.cluster.name ??
-    "default";
-  annotations[ANNOTATION_KUBERNETES_ID] = kubernetesClusterId;
 
   const kubeNamespace =
     deriveNamespaceFromStatus(gitRepo) ??
@@ -443,7 +407,6 @@ export function mapBundleToResource(
     fleetYaml?.defaultNamespace ?? fleetYaml?.namespace ?? "default";
   const helmReleaseName = fleetYaml?.helm?.releaseName ?? bundle.metadata?.name;
 
-  annotations[ANNOTATION_KUBERNETES_ID] = context.cluster.name;
   annotations[ANNOTATION_KUBERNETES_NAMESPACE] = defaultNamespace;
   if (helmReleaseName) {
     annotations[ANNOTATION_KUBERNETES_LABEL_SELECTOR] =
