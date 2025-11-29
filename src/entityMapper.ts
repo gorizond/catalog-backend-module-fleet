@@ -58,21 +58,50 @@ export const ANNOTATION_KUBERNETES_LABEL_SELECTOR =
 // Entity Naming
 // ============================================================================
 
+import { createHash } from "crypto";
+
 /**
  * Convert a name to Backstage-safe entity name
  * Must match: [a-z0-9]+(-[a-z0-9]+)*
  */
-export function toBackstageName(value: string): string {
-  const clean = value
+const MAX_ENTITY_NAME_LENGTH = 63;
+
+function sanitizeName(value: string): string {
+  return value
     .toLowerCase()
     .replace(/[^a-z0-9-]/g, "-")
     .replace(/--+/g, "-")
     .replace(/^-+/, "")
     .replace(/-+$/, "");
+}
 
-  // Ensure non-empty and max 63 chars
-  const result = clean || "fleet-entity";
-  return result.slice(0, 63);
+export function toBackstageName(value: string): string {
+  const clean = sanitizeName(value);
+  const trimmed = clean.slice(0, MAX_ENTITY_NAME_LENGTH).replace(/-+$/, "");
+  return trimmed || "fleet-entity";
+}
+
+/**
+ * Convert a name to Backstage-safe entity name with truncation + hash
+ * to keep it short while preserving uniqueness and ending rules.
+ */
+export function toStableBackstageName(
+  value: string,
+  maxLength: number = MAX_ENTITY_NAME_LENGTH,
+): string {
+  const clean = sanitizeName(value);
+  const fallback = "fleet-entity";
+
+  if (!clean) return fallback;
+  if (clean.length <= maxLength) return clean;
+
+  const hash = createHash("sha1").update(clean).digest("hex").slice(0, 6);
+  const base = clean
+    .slice(0, Math.max(1, maxLength - hash.length - 1))
+    .replace(/-+$/, "");
+  const result = `${base}-${hash}`.replace(/-+$/, "");
+
+  return result || `${fallback}-${hash}`;
 }
 
 /**
@@ -199,6 +228,7 @@ export function mapGitRepoToComponent(
   const status = gitRepo.status?.display?.state ?? "Unknown";
 
   const descriptionFromRepo =
+    gitRepo.metadata?.annotations?.["field.cattle.io/description"] ??
     gitRepo.metadata?.annotations?.["description"] ??
     `Fleet GitRepo: ${gitRepo.spec?.repo ?? "unknown"}`;
   const description = fleetYaml?.backstage?.description ?? descriptionFromRepo;
@@ -465,7 +495,8 @@ export function mapBundleDeploymentToResource(
   context: MapperContext,
 ): Entity {
   const bdName = bundleDeployment.metadata?.name ?? "fleet-bundle-deployment";
-  const name = toBackstageName(`${bdName}-${clusterId}`);
+  const originalName = `${bdName}-${clusterId}`;
+  const name = toStableBackstageName(originalName, 50);
   const namespace = toEntityNamespace(
     bundleDeployment.metadata?.namespace ?? "fleet-default",
   );
@@ -479,6 +510,8 @@ export function mapBundleDeploymentToResource(
     [ANNOTATION_FLEET_STATUS]: status,
     [ANNOTATION_FLEET_CLUSTER]: clusterId,
     [`${FLEET_ANNOTATION_PREFIX}/bundle-deployment`]: bdName,
+    [`${FLEET_ANNOTATION_PREFIX}/original-name`]: originalName,
+    [`${FLEET_ANNOTATION_PREFIX}/target-cluster-id`]: clusterId,
   };
 
   if (bundleDeployment.status?.display?.message) {

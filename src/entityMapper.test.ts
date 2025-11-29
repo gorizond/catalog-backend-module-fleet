@@ -6,6 +6,7 @@ import {
   mapBundleDeploymentToResource,
   mapApiDefinitionToApi,
   toBackstageName,
+  toStableBackstageName,
   toEntityNamespace,
   createEmptyBatch,
   flattenBatch,
@@ -176,6 +177,18 @@ describe("toBackstageName", () => {
   it("should truncate to 63 characters", () => {
     const longName = "a".repeat(100);
     expect(toBackstageName(longName).length).toBe(63);
+  });
+
+  it("should strip trailing hyphens after truncation", () => {
+    const value = "a-".repeat(40); // results in trailing hyphen when sliced
+    expect(toBackstageName(value).endsWith("-")).toBe(false);
+  });
+
+  it("should create stable short names with hash", () => {
+    const value = "very-long-name".repeat(10);
+    const result = toStableBackstageName(value, 30);
+    expect(result.length).toBeLessThanOrEqual(30);
+    expect(result).toMatch(/-[a-f0-9]{6}$/);
   });
 
   it("should handle special characters", () => {
@@ -453,6 +466,23 @@ describe("mapGitRepoToComponent", () => {
     const entity = mapGitRepoToComponent(gitRepo, context);
 
     expect(entity.metadata.description).toBe("Description from GitRepo");
+  });
+
+  it("should prefer field.cattle.io/description when present", () => {
+    const gitRepo = createMockGitRepo({
+      metadata: {
+        name: "my-app",
+        namespace: "fleet-default",
+        annotations: {
+          "field.cattle.io/description": "Fleet annotation description",
+          description: "Fallback description",
+        },
+      },
+    });
+    const context = createMockContext({ fleetYaml: undefined });
+    const entity = mapGitRepoToComponent(gitRepo, context);
+
+    expect(entity.metadata.description).toBe("Fleet annotation description");
   });
 
   it("should use fleet.yaml type when available", () => {
@@ -743,6 +773,20 @@ describe("mapBundleDeploymentToResource", () => {
     );
   });
 
+  it("should include original and target identifiers", () => {
+    const bd = createMockBundleDeployment();
+    const context = createMockContext();
+    const entity = mapBundleDeploymentToResource(bd, "prod-cluster", context);
+    const annotations = entity.metadata.annotations as Record<string, string>;
+
+    expect(annotations["fleet.cattle.io/original-name"]).toBe(
+      "my-app-main-prod-cluster",
+    );
+    expect(annotations["fleet.cattle.io/target-cluster-id"]).toBe(
+      "prod-cluster",
+    );
+  });
+
   it("should depend on parent Bundle Resource", () => {
     const bd = createMockBundleDeployment();
     const context = createMockContext();
@@ -776,6 +820,22 @@ describe("mapBundleDeploymentToResource", () => {
     const annotations = entity.metadata.annotations as Record<string, string>;
 
     expect(annotations["fleet.cattle.io/message"].length).toBe(500);
+  });
+
+  it("should shorten long names with a hash suffix", () => {
+    const longCluster = "very-long-cluster-name".repeat(4);
+    const bd = createMockBundleDeployment({
+      metadata: { name: "bundle", namespace: "fleet-default", labels: {} },
+    });
+    const context = createMockContext();
+    const entity = mapBundleDeploymentToResource(bd, longCluster, context);
+
+    expect(entity.metadata.name.length).toBeLessThanOrEqual(50);
+    expect(entity.metadata.name).toMatch(/-[a-f0-9]{6}$/);
+    const annotations = entity.metadata.annotations as Record<string, string>;
+    expect(annotations["fleet.cattle.io/original-name"]).toBe(
+      `bundle-${longCluster}`,
+    );
   });
 
   it("should handle missing bundle name label", () => {
