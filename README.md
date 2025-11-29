@@ -215,14 +215,14 @@ Entities are automatically annotated for the Backstage Kubernetes plugin:
 This enables the Kubernetes tab in Backstage to show pods, deployments, and other resources for Fleet-managed applications.
 
 Behavior defaults
-- Description: из GitRepo аннотации `description`; если `fetchFleetYaml` и `backstage.description` — переопределяет.
-- Owner: из `backstage.owner`; иначе выводится из URL репо (`group:default/<owner>`); фолбэк `group:default/default`.
-- TechDocs: `backstage.io/techdocs-ref` авто `dir:.` (выкл через `autoTechdocsRef: false`).
-- Kubernetes аннотации: `kubernetes-id` берётся из targets/targetCustomizations clusterName/name (иначе имя Fleet кластера), namespace — `defaultNamespace/namespace` из `fleet.yaml` или namespace GitRepo, selector — по `helm.releaseName` или имени GitRepo.
+- Description: from GitRepo annotation `description`; if `fetchFleetYaml` and `backstage.description` are present, the latter overrides.
+- Owner: from `backstage.owner`; otherwise derived from repo URL (`group:default/<owner>`); fallback `group:default/default`.
+- TechDocs: `backstage.io/techdocs-ref` auto `dir:.` (disable via `autoTechdocsRef: false`).
+- Kubernetes annotations: `kubernetes-id` comes from targets/targetCustomizations clusterName/name (otherwise Fleet cluster name); namespace — `defaultNamespace/namespace` from `fleet.yaml` or GitRepo namespace; selector — `helm.releaseName` or GitRepo name.
 
 ### Kubernetes Cluster Locator (optional)
 
-Модуль может динамически собирать кластеры из Rancher и отдавать `clusterLocatorMethods` (type: config) для плагина Kubernetes. Включение:
+The module can dynamically discover clusters from Rancher and emit `clusterLocatorMethods` (type: config) for the Kubernetes plugin. Enable:
 
 ```yaml
 catalog:
@@ -235,7 +235,7 @@ catalog:
       includeLocal: true
 ```
 
-Использование в Kubernetes backend (пример new backend system):
+Usage in the Kubernetes backend (new backend system):
 
 ```ts
 import { FleetK8sLocator } from '@gorizond/catalog-backend-module-fleet';
@@ -251,7 +251,7 @@ kubernetesPlugin.addRouter({
 });
 ```
 
-Если не подключать — kube конфиг остаётся статичным. Локатор только логирует найденные кластеры, когда включён.
+If you don’t wire it, kube config stays static. The locator only logs discovered clusters when enabled.
 
 ## Development
 
