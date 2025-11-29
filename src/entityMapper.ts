@@ -95,6 +95,19 @@ function deriveOwnerFromRepo(repo?: string): string | undefined {
   }
 }
 
+function deriveKubernetesNamespace(fleetYaml?: FleetYaml, fallback?: string) {
+  return (
+    fleetYaml?.defaultNamespace ?? fleetYaml?.namespace ?? fallback ?? "default"
+  );
+}
+
+function deriveKubernetesSelector(
+  helmReleaseName?: string,
+): string | undefined {
+  if (!helmReleaseName) return undefined;
+  return `app.kubernetes.io/instance=${helmReleaseName}`;
+}
+
 // ============================================================================
 // Mapper Context
 // ============================================================================
@@ -207,6 +220,20 @@ export function mapGitRepoToComponent(
 
   // Kubernetes integration - link to Fleet cluster
   annotations[ANNOTATION_KUBERNETES_ID] = context.cluster.name;
+  const kubeNamespace = deriveKubernetesNamespace(
+    fleetYaml,
+    gitRepo.metadata?.namespace,
+  );
+  const helmReleaseName =
+    fleetYaml?.helm?.releaseName ?? gitRepo.metadata?.name;
+  const kubeSelector = deriveKubernetesSelector(helmReleaseName);
+
+  if (kubeNamespace) {
+    annotations[ANNOTATION_KUBERNETES_NAMESPACE] = kubeNamespace;
+  }
+  if (kubeSelector) {
+    annotations[ANNOTATION_KUBERNETES_LABEL_SELECTOR] = kubeSelector;
+  }
 
   // Merge custom annotations from fleet.yaml
   if (fleetYaml?.annotations) {
@@ -221,7 +248,7 @@ export function mapGitRepoToComponent(
     gitRepo.spec?.repo &&
     !annotations["backstage.io/techdocs-ref"]
   ) {
-    annotations["backstage.io/techdocs-ref"] = `url:${gitRepo.spec.repo}`;
+    annotations["backstage.io/techdocs-ref"] = "dir:.";
   }
 
   const tags = ["fleet", "gitops", ...(fleetYaml?.backstage?.tags ?? [])];

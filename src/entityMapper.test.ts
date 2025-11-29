@@ -330,6 +330,12 @@ describe("mapGitRepoToComponent", () => {
     const annotations = entity.metadata.annotations as Record<string, string>;
 
     expect(annotations[ANNOTATION_KUBERNETES_ID]).toBe("test-cluster");
+    expect(annotations["backstage.io/kubernetes-namespace"]).toBe(
+      "fleet-default",
+    );
+    expect(annotations["backstage.io/kubernetes-label-selector"]).toBe(
+      "app.kubernetes.io/instance=my-app",
+    );
   });
 
   it("should include source location annotation", () => {
@@ -421,9 +427,7 @@ describe("mapGitRepoToComponent", () => {
     const entity = mapGitRepoToComponent(gitRepo, context);
     const annotations = entity.metadata.annotations as Record<string, string>;
 
-    expect(annotations["backstage.io/techdocs-ref"]).toBe(
-      "url:https://github.com/example/my-app",
-    );
+    expect(annotations["backstage.io/techdocs-ref"]).toBe("dir:.");
   });
 
   it("should use gitrepo description when fleet.yaml is missing", () => {
