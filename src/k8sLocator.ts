@@ -125,6 +125,12 @@ export class FleetK8sLocator {
       });
     }
 
+    this.logger.debug(
+      `FleetK8sLocator returning ${entries.length} clusters: ${entries
+        .map((c) => `${c.name} -> ${c.url}`)
+        .join(", ")}`,
+    );
+
     return entries;
   }
 
@@ -148,6 +154,7 @@ export class FleetK8sLocator {
 
   private async fetchRancherClusters(): Promise<RancherCluster[]> {
     const url = `${this.rancherUrl}/v3/clusters`;
+    this.logger.debug(`FleetK8sLocator fetching clusters from ${url}`);
     const res = await fetch(url, {
       method: "GET",
       headers: {
@@ -165,6 +172,9 @@ export class FleetK8sLocator {
     }
 
     const data = (await res.json()) as { data?: RancherCluster[] };
+    this.logger.debug(
+      `FleetK8sLocator received ${data.data?.length ?? 0} clusters`,
+    );
     return data.data ?? [];
   }
 }

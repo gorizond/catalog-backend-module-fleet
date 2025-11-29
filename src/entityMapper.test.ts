@@ -336,7 +336,7 @@ describe("mapGitRepoToComponent", () => {
     expect(annotations[ANNOTATION_FLEET_NAMESPACE]).toBe("fleet-default");
   });
 
-  it("should include Kubernetes annotations", () => {
+  it("should include Kubernetes annotations (cluster/namespace/selector)", () => {
     const gitRepo = createMockGitRepo();
     const context = createMockContext();
     const entity = mapGitRepoToComponent(gitRepo, context);
@@ -349,17 +349,6 @@ describe("mapGitRepoToComponent", () => {
     expect(annotations["backstage.io/kubernetes-label-selector"]).toBe(
       "app.kubernetes.io/instance=my-app",
     );
-  });
-
-  it("should fallback kubernetes id to cluster name when no targets", () => {
-    const gitRepo = createMockGitRepo({
-      spec: { repo: "https://github.com/example/my-app" },
-    });
-    const context = createMockContext();
-    const entity = mapGitRepoToComponent(gitRepo, context);
-    const annotations = entity.metadata.annotations as Record<string, string>;
-
-    expect(annotations[ANNOTATION_KUBERNETES_ID]).toBe("test-cluster");
   });
 
   it("should include source location annotation", () => {

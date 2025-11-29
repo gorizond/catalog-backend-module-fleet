@@ -260,6 +260,7 @@ export function mapGitRepoToComponent(
   const kubernetesClusterId =
     targetClusterNames[0] ?? context.cluster.name ?? "default";
   annotations[ANNOTATION_KUBERNETES_ID] = kubernetesClusterId;
+
   const kubeNamespace = deriveKubernetesNamespace(
     fleetYaml,
     gitRepo.metadata?.namespace,
