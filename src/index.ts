@@ -153,3 +153,7 @@ export {
   getWorstStatus,
   statusToLifecycle,
 } from "./types";
+
+// Kubernetes locator (for advanced usage)
+export { FleetK8sLocator } from "./k8sLocator";
+export type { FleetK8sLocatorOptions } from "./k8sLocator";

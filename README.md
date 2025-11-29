@@ -220,38 +220,50 @@ Behavior defaults
 - TechDocs: `backstage.io/techdocs-ref` auto `dir:.` (disable via `autoTechdocsRef: false`).
 - Kubernetes annotations: `kubernetes-id` comes from targets/targetCustomizations clusterName/name (otherwise Fleet cluster name); namespace — `defaultNamespace/namespace` from `fleet.yaml` or GitRepo namespace; selector — `helm.releaseName` or GitRepo name.
 
-### Kubernetes Cluster Locator (optional)
+### Kubernetes Cluster Locator (Automatic Discovery)
 
-The module can dynamically discover clusters from Rancher and emit `clusterLocatorMethods` (type: config) for the Kubernetes plugin. Enable:
+The module automatically discovers all Rancher downstream clusters and makes them available to the Kubernetes backend.
+
+#### Configuration
+
+Add FleetK8sLocator config to enable automatic cluster discovery:
 
 ```yaml
 catalog:
   providers:
+    fleet:
+      production:
+        url: https://rancher.example.com/k8s/clusters/local
+        token: ${FLEET_TOKEN}
+        namespaces:
+          - fleet-default
+        includeBundles: true
+        includeBundleDeployments: true
+        fetchFleetYaml: true
+
+    # Add this section for automatic K8s cluster discovery
     fleetK8sLocator:
       enabled: true
       rancherUrl: https://rancher.example.com
-      rancherToken: ${RANCHER_TOKEN}   # токен с доступом ко всем downstream
+      rancherToken: ${RANCHER_TOKEN}   # Token with access to all downstream clusters
       skipTLSVerify: false
-      includeLocal: true
+      includeLocal: true               # Include local management cluster
 ```
 
-Usage in the Kubernetes backend (new backend system):
+**That's it!** When enabled, the module will:
+- ✅ Discover all Rancher clusters via `/v3/clusters` API
+- ✅ Automatically inject them into `kubernetes.clusterLocatorMethods`
+- ✅ Update config at backend startup
+- ✅ Use single Rancher token for all clusters
 
-```ts
-import { FleetK8sLocator } from '@gorizond/catalog-backend-module-fleet';
+#### How It Works
 
-const locator = FleetK8sLocator.fromConfig({ config, logger });
-const clusterLocatorMethods = locator
-  ? await locator.asClusterLocatorMethods()
-  : [];
+1. At backend startup, FleetK8sLocator queries Rancher API
+2. Fetches list of all clusters you have access to
+3. Converts them to Kubernetes backend format
+4. Injects into config dynamically
 
-kubernetesPlugin.addRouter({
-  // ...
-  clusterLocatorMethods, // type: config, заполняется локатором
-});
-```
-
-If you don’t wire it, kube config stays static. The locator only logs discovered clusters when enabled.
+No manual cluster configuration needed!
 
 ## Development
 

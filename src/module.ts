@@ -15,6 +15,7 @@ import {
 import { catalogProcessingExtensionPoint } from "@backstage/plugin-catalog-node/alpha";
 import { FleetEntityProvider } from "./provider";
 import { FleetK8sLocator } from "./k8sLocator";
+import { ConfigReader } from "@backstage/config";
 
 /**
  * Catalog backend module that provides Fleet entities.
@@ -130,19 +131,40 @@ export const catalogModuleFleet = createBackendModule({
           );
         }
 
+        // Discover and inject Kubernetes clusters automatically
         if (k8sLocator) {
           try {
             const clusterMethods = await k8sLocator.asClusterLocatorMethods();
             const clusters = clusterMethods.flatMap((m) => m.clusters);
+
             logger.info(
               `FleetK8sLocator discovered ${clusters.length} Kubernetes clusters`,
             );
             logger.debug(
-              `FleetK8sLocator clusterLocatorMethods: ${JSON.stringify(clusterMethods, null, 2)}`,
+              `Clusters: ${clusters.map((c) => c.name).join(", ")}`,
             );
-            // NOTE: We only log here to avoid mutating kube plugin config implicitly.
-            // Consumers can import FleetK8sLocator and wire clusterLocatorMethods
-            // into the kubernetes backend/plugin as needed.
+
+            // Inject clusters into kubernetes backend config dynamically
+            const k8sConfig = {
+              kubernetes: {
+                clusterLocatorMethods: clusterMethods,
+              },
+            };
+
+            // Merge with existing config
+            const originalConfig = config as any;
+            const mergedConfig = ConfigReader.fromConfigs([
+              originalConfig,
+              new ConfigReader(k8sConfig),
+            ]);
+
+            // Replace config reference for dynamic injection
+            Object.setPrototypeOf(config, Object.getPrototypeOf(mergedConfig));
+            Object.assign(config, mergedConfig);
+
+            logger.info(
+              `Injected ${clusters.length} Rancher clusters into kubernetes.clusterLocatorMethods`,
+            );
           } catch (error) {
             logger.warn(`FleetK8sLocator failed: ${error}`);
           }
