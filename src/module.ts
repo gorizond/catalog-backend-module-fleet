@@ -15,7 +15,7 @@ import {
 import { catalogProcessingExtensionPoint } from "@backstage/plugin-catalog-node/alpha";
 import { FleetEntityProvider } from "./provider";
 import { FleetK8sLocator } from "./k8sLocator";
-import { ConfigReader } from "@backstage/config";
+import { Config, ConfigReader } from "@backstage/config";
 
 /**
  * Catalog backend module that provides Fleet entities.
@@ -140,9 +140,7 @@ export const catalogModuleFleet = createBackendModule({
             logger.info(
               `FleetK8sLocator discovered ${clusters.length} Kubernetes clusters`,
             );
-            logger.debug(
-              `Clusters: ${clusters.map((c) => c.name).join(", ")}`,
-            );
+            logger.debug(`Clusters: ${clusters.map((c) => c.name).join(", ")}`);
 
             // Inject clusters into kubernetes backend config dynamically
             const k8sConfig = {
@@ -152,7 +150,7 @@ export const catalogModuleFleet = createBackendModule({
             };
 
             // Merge with existing config
-            const originalConfig = config as any;
+            const originalConfig = config as unknown as Config;
             const mergedConfig = ConfigReader.fromConfigs([
               originalConfig,
               new ConfigReader(k8sConfig),
