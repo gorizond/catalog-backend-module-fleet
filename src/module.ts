@@ -93,6 +93,8 @@ export const catalogModuleFleet = createBackendModule({
         config: coreServices.rootConfig,
         logger: coreServices.logger,
         scheduler: coreServices.scheduler,
+        // Optional dependency on kubernetes plugin config loader
+        // In new backend system, the kube backend exposes a config refiner; here we just log clusters.
       },
       async init({ catalog, config, logger, scheduler }) {
         const providers = FleetEntityProvider.fromConfig(config, { logger });
@@ -130,13 +132,17 @@ export const catalogModuleFleet = createBackendModule({
 
         if (k8sLocator) {
           try {
-            const clusters = await k8sLocator.listClusters();
+            const clusterMethods = await k8sLocator.asClusterLocatorMethods();
+            const clusters = clusterMethods.flatMap((m) => m.clusters);
             logger.info(
               `FleetK8sLocator discovered ${clusters.length} Kubernetes clusters`,
             );
             logger.debug(
-              `FleetK8sLocator clusters: ${JSON.stringify(clusters, null, 2)}`,
+              `FleetK8sLocator clusterLocatorMethods: ${JSON.stringify(clusterMethods, null, 2)}`,
             );
+            // NOTE: We only log here to avoid mutating kube plugin config implicitly.
+            // Consumers can import FleetK8sLocator and wire clusterLocatorMethods
+            // into the kubernetes backend/plugin as needed.
           } catch (error) {
             logger.warn(`FleetK8sLocator failed: ${error}`);
           }

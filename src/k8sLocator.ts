@@ -59,9 +59,10 @@ export class FleetK8sLocator {
     this.includeLocal = opts.includeLocal;
   }
 
-  static fromConfig({ logger, config }: FleetK8sLocatorOptions):
-    | FleetK8sLocator
-    | undefined {
+  static fromConfig({
+    logger,
+    config,
+  }: FleetK8sLocatorOptions): FleetK8sLocator | undefined {
     const enabled = config.getOptionalBoolean(
       "catalog.providers.fleetK8sLocator.enabled",
     );
@@ -125,6 +126,24 @@ export class FleetK8sLocator {
     }
 
     return entries;
+  }
+
+  /**
+   * Convert to Backstage kubernetes.clusterLocatorMethods (type: config).
+   */
+  async asClusterLocatorMethods(): Promise<
+    Array<{
+      type: "config";
+      clusters: ClusterLocatorEntry[];
+    }>
+  > {
+    const clusters = await this.listClusters();
+    return [
+      {
+        type: "config",
+        clusters,
+      },
+    ];
   }
 
   private async fetchRancherClusters(): Promise<RancherCluster[]> {
