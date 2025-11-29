@@ -463,6 +463,8 @@ export interface FleetClusterConfig {
   generateApis?: boolean;
   /** Fetch fleet.yaml from Git repository (default: false) */
   fetchFleetYaml?: boolean;
+  /** Automatically add techdocs ref annotation (default: true) */
+  autoTechdocsRef?: boolean;
   /** Label selector to filter GitRepos */
   gitRepoSelector?: LabelSelector;
 }

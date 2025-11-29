@@ -49,6 +49,7 @@ const createMockContext = (
 ): MapperContext => ({
   cluster: createMockClusterConfig(),
   locationKey: "fleet:test",
+  autoTechdocsRef: true,
   ...overrides,
 });
 
@@ -397,6 +398,46 @@ describe("mapGitRepoToComponent", () => {
     const entity = mapGitRepoToComponent(gitRepo, context);
 
     expect(getSpec(entity).owner).toBe("team-platform");
+  });
+
+  it("should derive owner from repo when fleet.yaml owner is missing", () => {
+    const gitRepo = createMockGitRepo({
+      metadata: {
+        name: "my-app",
+        namespace: "fleet-default",
+        annotations: {},
+      },
+      status: { display: { state: "Ready" } },
+    });
+    const context = createMockContext({ fleetYaml: undefined });
+    const entity = mapGitRepoToComponent(gitRepo, context);
+
+    expect(getSpec(entity).owner).toBe("group:default/example");
+  });
+
+  it("should add techdocs ref annotation when enabled", () => {
+    const gitRepo = createMockGitRepo();
+    const context = createMockContext();
+    const entity = mapGitRepoToComponent(gitRepo, context);
+    const annotations = entity.metadata.annotations as Record<string, string>;
+
+    expect(annotations["backstage.io/techdocs-ref"]).toBe(
+      "url:https://github.com/example/my-app",
+    );
+  });
+
+  it("should use gitrepo description when fleet.yaml is missing", () => {
+    const gitRepo = createMockGitRepo({
+      metadata: {
+        name: "my-app",
+        namespace: "fleet-default",
+        annotations: { description: "Description from GitRepo" },
+      },
+    });
+    const context = createMockContext({ fleetYaml: undefined });
+    const entity = mapGitRepoToComponent(gitRepo, context);
+
+    expect(entity.metadata.description).toBe("Description from GitRepo");
   });
 
   it("should use fleet.yaml type when available", () => {

@@ -225,6 +225,7 @@ export class FleetEntityProvider implements EntityProvider {
     const context: MapperContext = {
       cluster,
       locationKey: this.locationKey,
+      autoTechdocsRef: cluster.autoTechdocsRef,
     };
 
     // Create System entity for the Fleet Rancher Cluster itself
@@ -300,6 +301,7 @@ export class FleetEntityProvider implements EntityProvider {
       cluster,
       locationKey: this.locationKey,
       fleetYaml,
+      autoTechdocsRef: cluster.autoTechdocsRef,
     };
 
     // Create Component entity for GitRepo
@@ -360,6 +362,7 @@ export class FleetEntityProvider implements EntityProvider {
       cluster,
       locationKey: this.locationKey,
       fleetYaml,
+      autoTechdocsRef: cluster.autoTechdocsRef,
     };
 
     // Create Resource entity for Bundle
@@ -467,6 +470,7 @@ function buildClusterConfig(config: Config): FleetClusterConfig {
     generateApis: config.getOptionalBoolean("generateApis") ?? false,
     fetchFleetYaml: config.getOptionalBoolean("fetchFleetYaml") ?? false,
     gitRepoSelector: readSelector(config.getOptionalConfig("gitRepoSelector")),
+    autoTechdocsRef: config.getOptionalBoolean("autoTechdocsRef") ?? true,
   };
 }
 

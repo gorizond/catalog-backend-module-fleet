@@ -27,6 +27,7 @@ import {
   BundleDependsOn,
   statusToLifecycle,
 } from "./types";
+import { URL } from "url";
 
 // ============================================================================
 // Constants
@@ -81,6 +82,19 @@ export function toEntityNamespace(fleetNamespace: string): string {
   return toBackstageName(fleetNamespace);
 }
 
+function deriveOwnerFromRepo(repo?: string): string | undefined {
+  if (!repo) return undefined;
+  try {
+    const url = new URL(repo);
+    const segments = url.pathname.split("/").filter(Boolean);
+    const ownerSegment = segments[0];
+    if (!ownerSegment) return undefined;
+    return `group:default/${toBackstageName(ownerSegment)}`;
+  } catch {
+    return undefined;
+  }
+}
+
 // ============================================================================
 // Mapper Context
 // ============================================================================
@@ -89,6 +103,7 @@ export interface MapperContext {
   cluster: FleetClusterConfig;
   locationKey: string;
   fleetYaml?: FleetYaml;
+  autoTechdocsRef?: boolean;
 }
 
 // ============================================================================
@@ -162,10 +177,10 @@ export function mapGitRepoToComponent(
     gitRepo.spec?.targets?.map((t) => t.name).filter(Boolean) ?? [];
   const status = gitRepo.status?.display?.state ?? "Unknown";
 
-  const description =
-    fleetYaml?.backstage?.description ??
+  const descriptionFromRepo =
     gitRepo.metadata?.annotations?.["description"] ??
     `Fleet GitRepo: ${gitRepo.spec?.repo ?? "unknown"}`;
+  const description = fleetYaml?.backstage?.description ?? descriptionFromRepo;
 
   const annotations: Record<string, string> = {
     [ANNOTATION_LOCATION]: context.locationKey,
@@ -199,6 +214,14 @@ export function mapGitRepoToComponent(
   }
   if (fleetYaml?.backstage?.annotations) {
     Object.assign(annotations, fleetYaml.backstage.annotations);
+  }
+
+  if (
+    context.autoTechdocsRef !== false &&
+    gitRepo.spec?.repo &&
+    !annotations["backstage.io/techdocs-ref"]
+  ) {
+    annotations["backstage.io/techdocs-ref"] = `url:${gitRepo.spec.repo}`;
   }
 
   const tags = ["fleet", "gitops", ...(fleetYaml?.backstage?.tags ?? [])];
@@ -245,10 +268,15 @@ export function mapGitRepoToComponent(
 
   // Use 'service' type for full Backstage integration (Kubernetes tab, etc.)
   // Can be overridden via fleet.yaml backstage.type
+  const derivedOwner =
+    fleetYaml?.backstage?.owner ??
+    deriveOwnerFromRepo(gitRepo.spec?.repo) ??
+    "group:default/default";
+
   const spec: JsonObject = {
     type: fleetYaml?.backstage?.type ?? "service",
     lifecycle: statusToLifecycle(status),
-    owner: fleetYaml?.backstage?.owner ?? "unknown",
+    owner: derivedOwner,
     system,
   };
 
