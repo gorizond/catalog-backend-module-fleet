@@ -15,7 +15,7 @@ import {
 import { catalogProcessingExtensionPoint } from "@backstage/plugin-catalog-node/alpha";
 import { FleetEntityProvider } from "./provider";
 import { FleetK8sLocator } from "./k8sLocator";
-import { Config, ConfigReader } from "@backstage/config";
+import { ConfigReader } from "@backstage/config";
 
 /**
  * Catalog backend module that provides Fleet entities.
@@ -150,11 +150,12 @@ export const catalogModuleFleet = createBackendModule({
             };
 
             // Merge with existing config
-            const originalConfig = config as unknown as Config;
-            const mergedConfig = ConfigReader.fromConfigs([
-              originalConfig,
-              new ConfigReader(k8sConfig),
-            ]);
+            /* eslint-disable @typescript-eslint/no-explicit-any */
+            const mergedConfig = ConfigReader.fromConfigs(
+              // config here is provided by the Backstage backend runtime; cast for merge
+              [config as any, new ConfigReader(k8sConfig) as any] as any,
+            );
+            /* eslint-enable @typescript-eslint/no-explicit-any */
 
             // Replace config reference for dynamic injection
             Object.setPrototypeOf(config, Object.getPrototypeOf(mergedConfig));
