@@ -1,5 +1,8 @@
 # @gorizond/catalog-backend-module-fleet
 
+[![npm version](https://img.shields.io/npm/v/@gorizond/catalog-backend-module-fleet.svg)](https://www.npmjs.com/package/@gorizond/catalog-backend-module-fleet)
+[![npm downloads](https://img.shields.io/npm/dm/@gorizond/catalog-backend-module-fleet.svg)](https://www.npmjs.com/package/@gorizond/catalog-backend-module-fleet)
+
 Backstage Catalog Backend Module for Rancher Fleet GitOps.
 
 This module provides an EntityProvider that synchronizes Rancher Fleet GitOps resources into the Backstage Software Catalog.

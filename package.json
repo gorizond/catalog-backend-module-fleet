@@ -7,6 +7,10 @@
   "files": [
     "dist"
   ],
+  "homepage": "https://www.npmjs.com/package/@gorizond/catalog-backend-module-fleet",
+  "bugs": {
+    "url": "https://github.com/gorizond/catalog-backend-module-fleet/issues"
+  },
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
