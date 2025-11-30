@@ -629,8 +629,9 @@ describe("mapBundleToComponent", () => {
     const annotations = entity.metadata.annotations as Record<string, string>;
 
     expect(annotations["backstage.io/kubernetes-namespace"]).toBe("my-app");
+    // Helm release name takes priority over objectset hash
     expect(annotations["backstage.io/kubernetes-label-selector"]).toBe(
-      "objectset.rio.cattle.io/hash=bundle-hash",
+      "app.kubernetes.io/instance=my-app-release",
     );
   });
 

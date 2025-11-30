@@ -407,12 +407,15 @@ export function mapBundleToComponent(
     bundle.metadata?.labels?.["objectset.rio.cattle.io/hash"];
 
   annotations[ANNOTATION_KUBERNETES_NAMESPACE] = defaultNamespace;
-  if (objectsetHash) {
-    annotations[ANNOTATION_KUBERNETES_LABEL_SELECTOR] =
-      `objectset.rio.cattle.io/hash=${objectsetHash}`;
-  } else if (helmReleaseName) {
+
+  // Prefer helm release name for Helm-based bundles (standard Helm label)
+  if (helmReleaseName) {
     annotations[ANNOTATION_KUBERNETES_LABEL_SELECTOR] =
       `app.kubernetes.io/instance=${helmReleaseName}`;
+  } else if (objectsetHash) {
+    // Fallback to objectset hash, but this may select too many resources
+    annotations[ANNOTATION_KUBERNETES_LABEL_SELECTOR] =
+      `objectset.rio.cattle.io/hash=${objectsetHash}`;
   }
 
   // Merge custom annotations from fleet.yaml
