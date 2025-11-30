@@ -875,12 +875,13 @@ describe("mapClusterToResource", () => {
     const context = createMockContext();
     const entity = mapClusterToResource(
       "prod-cluster",
+      "staging-000",
       "fleet-default",
       context,
     );
 
     expect(entity.kind).toBe("Resource");
-    expect(entity.metadata.name).toBe("prod-cluster");
+    expect(entity.metadata.name).toBe("staging-000");
     expect(entity.metadata.namespace).toBe("fleet-default");
     const annotations = entity.metadata.annotations as Record<string, string>;
     expect(annotations["backstage.io/kubernetes-id"]).toBe("prod-cluster");

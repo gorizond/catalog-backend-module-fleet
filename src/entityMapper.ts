@@ -210,10 +210,11 @@ export function mapFleetClusterToDomain(
 
 export function mapClusterToResource(
   clusterId: string,
+  clusterName: string | undefined,
   namespace: string,
   context: MapperContext,
 ): Entity {
-  const name = toBackstageName(clusterId);
+  const safeName = toBackstageName(clusterName ?? clusterId);
   const entityNamespace = toEntityNamespace(namespace);
   const annotations: Record<string, string> = {
     [ANNOTATION_LOCATION]: context.locationKey,
@@ -222,13 +223,15 @@ export function mapClusterToResource(
     [ANNOTATION_KUBERNETES_ID]: clusterId,
   };
 
-  const description = `Downstream Kubernetes cluster: ${clusterId}`;
+  const description = `Downstream Kubernetes cluster: ${
+    clusterName ?? clusterId
+  }`;
 
   return {
     apiVersion: "backstage.io/v1alpha1",
     kind: "Resource",
     metadata: {
-      name,
+      name: safeName,
       namespace: entityNamespace,
       description,
       annotations,

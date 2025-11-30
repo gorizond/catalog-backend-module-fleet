@@ -21,6 +21,8 @@ import {
 } from "@backstage/plugin-catalog-node";
 import { stringifyEntityRef } from "@backstage/catalog-model";
 import pLimit from "p-limit";
+import fetch from "node-fetch";
+import https from "https";
 
 import {
   FleetGitRepo,
@@ -79,6 +81,7 @@ export class FleetEntityProvider implements EntityProvider {
   private readonly locationKey: string;
   private readonly concurrency: number;
   private connection?: EntityProviderConnection;
+  private clusterNameMap?: Map<string, string>;
 
   /**
    * Create FleetEntityProvider instances from configuration
@@ -172,6 +175,45 @@ export class FleetEntityProvider implements EntityProvider {
     return result;
   }
 
+  private async populateClusterNameMap(): Promise<void> {
+    try {
+      const cfg = this.clusters[0];
+      if (!cfg?.url || !cfg?.token) return;
+      const rancherBase = cfg.url.replace(/\/k8s\/clusters\/.+$/, "");
+      const agent = new https.Agent({
+        rejectUnauthorized: cfg.skipTLSVerify === true ? false : true,
+      });
+      const res = await fetch(`${rancherBase}/v3/clusters`, {
+        method: "GET",
+        headers: {
+          Authorization: `Bearer ${cfg.token}`,
+          Accept: "application/json",
+        },
+        agent,
+      });
+      if (!res.ok) {
+        this.logger.warn(
+          `Failed to fetch Rancher clusters for names: ${res.status} ${res.statusText}`,
+        );
+        return;
+      }
+      const data = (await res.json()) as {
+        data?: Array<{ id?: string; name?: string }>;
+      };
+      const entries = data.data ?? [];
+      this.clusterNameMap = new Map(
+        entries
+          .filter((c) => c.id)
+          .map((c) => [c.id as string, c.name ?? (c.id as string)]),
+      );
+      this.logger.debug(
+        `Loaded ${this.clusterNameMap.size} cluster names from Rancher`,
+      );
+    } catch (e) {
+      this.logger.warn(`Failed to load Rancher cluster names: ${e}`);
+    }
+  }
+
   async connect(connection: EntityProviderConnection): Promise<void> {
     this.connection = connection;
     this.logger.info(`Connected FleetEntityProvider[${this.locationKey}]`);
@@ -192,6 +234,8 @@ export class FleetEntityProvider implements EntityProvider {
     const batch = createEmptyBatch();
 
     try {
+      await this.populateClusterNameMap();
+
       await Promise.all(
         this.clusters.map((cluster) =>
           limit(async () => {
@@ -415,8 +459,12 @@ export class FleetEntityProvider implements EntityProvider {
               bd.metadata?.namespace ?? "",
             ) ?? "default";
           // Cluster entity
+          // Try to find friendly name from Rancher clusters if available
+          const clusterFriendlyName =
+            this.clusterNameMap?.get(clusterId) ?? clusterId;
           const clusterResource = mapClusterToResource(
             clusterId,
+            clusterFriendlyName,
             workspaceNamespace,
             context,
           );
