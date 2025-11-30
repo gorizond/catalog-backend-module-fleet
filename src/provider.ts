@@ -50,6 +50,7 @@ import {
   createEmptyBatch,
   flattenBatch,
   mapClusterToResource,
+  mapNodeToResource,
   extractWorkspaceNamespaceFromBundleDeploymentNamespace,
 } from "./entityMapper";
 import { Entity } from "@backstage/catalog-model";
@@ -110,6 +111,74 @@ export class FleetEntityProvider implements EntityProvider {
         context,
       );
       batch.resources.push(entity);
+    }
+  }
+
+  private async addNodesForClusters(batch: EntityBatch): Promise<void> {
+    if (!this.clusterNameMap || this.clusterNameMap.size === 0) return;
+    const cfg = this.clusters[0];
+    if (!cfg?.url || !cfg?.token) return;
+
+    const rancherBase = cfg.url.replace(/\/k8s\/clusters\/.+$/, "");
+    const agent = new https.Agent({
+      rejectUnauthorized: cfg.skipTLSVerify === true ? false : true,
+    });
+
+    for (const [clusterId, clusterName] of this.clusterNameMap.entries()) {
+      try {
+        const res = await fetch(
+          `${rancherBase}/v3/clusters/${clusterId}/nodes`,
+          {
+            method: "GET",
+            headers: {
+              Authorization: `Bearer ${cfg.token}`,
+              Accept: "application/json",
+            },
+            agent,
+          },
+        );
+        if (!res.ok) {
+          this.logger.debug(
+            `Failed to fetch nodes for cluster ${clusterId}: ${res.status} ${res.statusText}`,
+          );
+          continue;
+        }
+        const data = (await res.json()) as {
+          data?: Array<{
+            id?: string;
+            nodeName?: string;
+            hostname?: string;
+            name?: string;
+          }>;
+        };
+        const nodes = data.data ?? [];
+        if (nodes.length === 0) continue;
+
+        const cluster = this.clusters[0];
+        const context: MapperContext = {
+          cluster,
+          locationKey: this.locationKey,
+          autoTechdocsRef: cluster.autoTechdocsRef,
+        };
+        const workspaceNamespace = "fleet-default";
+
+        for (const node of nodes) {
+          const nodeId = node.id ?? node.nodeName ?? node.name;
+          if (!nodeId) continue;
+          const nodeName = node.nodeName ?? node.hostname ?? node.name;
+          const entity = mapNodeToResource({
+            nodeId,
+            nodeName,
+            clusterId,
+            clusterName,
+            workspaceNamespace,
+            context,
+          });
+          batch.resources.push(entity);
+        }
+      } catch (e) {
+        this.logger.debug(`Failed to load nodes for ${clusterId}: ${e}`);
+      }
     }
   }
 
@@ -288,6 +357,7 @@ export class FleetEntityProvider implements EntityProvider {
       await this.populateClusterNameMap();
 
       this.addDiscoveredClustersToBatch(batch);
+      await this.addNodesForClusters(batch);
 
       await Promise.all(
         this.clusters.map((cluster) =>

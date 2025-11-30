@@ -245,6 +245,69 @@ export function mapClusterToResource(
 }
 
 // ============================================================================
+// Node (downstream) → Resource (type: kubernetes-node)
+// ============================================================================
+
+export function mapNodeToResource(params: {
+  nodeId: string;
+  nodeName?: string;
+  clusterId: string;
+  clusterName?: string;
+  workspaceNamespace: string;
+  context: MapperContext;
+}): Entity {
+  const {
+    nodeId,
+    nodeName,
+    clusterId,
+    clusterName,
+    workspaceNamespace,
+    context,
+  } = params;
+  const safeName = toStableBackstageName(nodeName ?? nodeId, 63);
+  const entityNamespace = toEntityNamespace(workspaceNamespace);
+
+  const annotations: Record<string, string> = {
+    [ANNOTATION_LOCATION]: context.locationKey,
+    [ANNOTATION_ORIGIN_LOCATION]: context.locationKey,
+    [ANNOTATION_FLEET_CLUSTER]: clusterId,
+    [`${FLEET_ANNOTATION_PREFIX}/node-id`]: nodeId,
+    [ANNOTATION_KUBERNETES_ID]: clusterId,
+  };
+
+  const dependsOn = [
+    stringifyEntityRef({
+      kind: "Resource",
+      namespace: entityNamespace,
+      name: toBackstageName(clusterName ?? clusterId),
+    }),
+  ];
+
+  return {
+    apiVersion: "backstage.io/v1alpha1",
+    kind: "Resource",
+    metadata: {
+      name: safeName,
+      namespace: entityNamespace,
+      description: `Kubernetes node ${nodeName ?? nodeId} in cluster ${
+        clusterName ?? clusterId
+      }`,
+      annotations,
+      tags: [
+        "fleet",
+        "kubernetes-node",
+        `cluster-${toBackstageName(clusterName ?? clusterId)}`,
+      ],
+    },
+    spec: {
+      type: "kubernetes-node",
+      owner: "platform-team",
+      dependsOn,
+    },
+  };
+}
+
+// ============================================================================
 // GitRepo → System
 // ============================================================================
 
@@ -618,11 +681,7 @@ export function mapBundleDeploymentToResource(
       namespace,
       description,
       annotations,
-      tags: [
-        "fleet",
-        "fleet-deployment",
-        `cluster-${clusterResourceName}`,
-      ],
+      tags: ["fleet", "fleet-deployment", `cluster-${clusterResourceName}`],
     },
     spec: {
       type: "fleet-deployment",
