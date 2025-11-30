@@ -635,12 +635,23 @@ describe("mapBundleToComponent", () => {
     );
   });
 
-  it("should depend on parent GitRepo Component", () => {
+  it("should link to parent GitRepo System", () => {
     const bundle = createMockBundle();
     const context = createMockContext();
     const entity = mapBundleToComponent(bundle, context);
 
-    expect(getSpec(entity).dependsOn).toContain("system:fleet-default/my-app");
+    expect(getSpec(entity).system).toBe("system:fleet-default/my-app");
+  });
+
+  it("should add techdocs entity annotation pointing to parent System", () => {
+    const bundle = createMockBundle();
+    const context = createMockContext();
+    const entity = mapBundleToComponent(bundle, context);
+    const annotations = entity.metadata.annotations as Record<string, string>;
+
+    expect(annotations["backstage.io/techdocs-entity"]).toBe(
+      "system:fleet-default/my-app",
+    );
   });
 
   it("should include fleet.yaml tags", () => {
@@ -767,13 +778,29 @@ describe("mapBundleDeploymentToResource", () => {
     );
   });
 
-  it("should depend on parent Bundle Resource", () => {
+  it("should depend on parent Bundle Component", () => {
     const bd = createMockBundleDeployment();
     const context = createMockContext();
     const entity = mapBundleDeploymentToResource(bd, "prod-cluster", context);
 
     expect(getSpec(entity).dependsOn).toContain(
-      "resource:cluster-fleet-default-prod-cluster/my-app-main",
+      "component:fleet-default/my-app-main",
+    );
+  });
+
+  it("should add techdocs entity annotation when parent System is known", () => {
+    const bd = createMockBundleDeployment();
+    const context = createMockContext();
+    const entity = mapBundleDeploymentToResource(
+      bd,
+      "prod-cluster",
+      context,
+      "system:fleet-default/my-app",
+    );
+    const annotations = entity.metadata.annotations as Record<string, string>;
+
+    expect(annotations["backstage.io/techdocs-entity"]).toBe(
+      "system:fleet-default/my-app",
     );
   });
 

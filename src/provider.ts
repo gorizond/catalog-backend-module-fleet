@@ -19,6 +19,7 @@ import {
   EntityProvider,
   EntityProviderConnection,
 } from "@backstage/plugin-catalog-node";
+import { stringifyEntityRef } from "@backstage/catalog-model";
 import pLimit from "p-limit";
 
 import {
@@ -374,6 +375,11 @@ export class FleetEntityProvider implements EntityProvider {
     // Create Component entity for Bundle
     const componentEntity = mapBundleToComponent(bundle, context);
     batch.components.push(componentEntity);
+    const resourceRefs: string[] = [];
+    const parentSystemRef =
+      typeof componentEntity.spec === "object"
+        ? (componentEntity.spec as { system?: string }).system
+        : undefined;
 
     // Fetch and process BundleDeployments (per-cluster status)
     if (cluster.includeBundleDeployments) {
@@ -392,10 +398,29 @@ export class FleetEntityProvider implements EntityProvider {
             bd,
             clusterId,
             context,
+            parentSystemRef,
           );
           batch.resources.push(bdResourceEntity);
+          resourceRefs.push(
+            stringifyEntityRef({
+              kind: "Resource",
+              namespace: bdResourceEntity.metadata.namespace ?? "default",
+              name: bdResourceEntity.metadata.name,
+            }),
+          );
         }
       }
+    }
+
+    if (resourceRefs.length > 0) {
+      const spec = (componentEntity.spec ?? {}) as {
+        dependsOn?: string[];
+      };
+      const existingDependsOn = Array.isArray(spec.dependsOn)
+        ? spec.dependsOn
+        : [];
+      spec.dependsOn = [...new Set([...existingDependsOn, ...resourceRefs])];
+      componentEntity.spec = spec;
     }
 
     return batch;

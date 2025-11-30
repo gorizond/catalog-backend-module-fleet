@@ -9,6 +9,7 @@
 
 import { Config } from "@backstage/config";
 import { LoggerService } from "@backstage/backend-plugin-api";
+import { CustomResourceMatcher } from "@backstage/plugin-kubernetes-common";
 import fetch from "node-fetch";
 
 type ClusterLocatorEntry = {
@@ -18,6 +19,7 @@ type ClusterLocatorEntry = {
   serviceAccountToken: string;
   caData?: string;
   skipTLSVerify?: boolean;
+  customResources?: CustomResourceMatcher[];
 };
 
 type RancherCluster = {
@@ -44,6 +46,7 @@ export class FleetK8sLocator {
   private readonly rancherToken: string;
   private readonly skipTLSVerify: boolean;
   private readonly includeLocal: boolean;
+  private readonly fleetNamespaces: string[];
 
   private constructor(opts: {
     logger: LoggerService;
@@ -51,12 +54,14 @@ export class FleetK8sLocator {
     rancherToken: string;
     skipTLSVerify: boolean;
     includeLocal: boolean;
+    fleetNamespaces: string[];
   }) {
     this.logger = opts.logger.child({ module: "fleet-k8s-locator" });
     this.rancherUrl = opts.rancherUrl.replace(/\/$/, "");
     this.rancherToken = opts.rancherToken;
     this.skipTLSVerify = opts.skipTLSVerify;
     this.includeLocal = opts.includeLocal;
+    this.fleetNamespaces = opts.fleetNamespaces;
   }
 
   static fromConfig({
@@ -93,6 +98,9 @@ export class FleetK8sLocator {
       config.getOptionalBoolean(
         "catalog.providers.fleetK8sLocator.includeLocal",
       ) ?? true;
+    const fleetNamespaces = config.getOptionalStringArray(
+      "catalog.providers.fleetK8sLocator.fleetNamespaces",
+    ) ?? ["fleet-default", "fleet-local"];
 
     return new FleetK8sLocator({
       logger,
@@ -100,6 +108,7 @@ export class FleetK8sLocator {
       rancherToken,
       skipTLSVerify,
       includeLocal,
+      fleetNamespaces,
     });
   }
 
@@ -109,19 +118,28 @@ export class FleetK8sLocator {
    */
   async listClusters(): Promise<ClusterLocatorEntry[]> {
     const clusters = await this.fetchRancherClusters();
+    const bundleDeployments = await this.fetchBundleDeployments();
+    const customResourcesByCluster =
+      this.buildCustomResourcesByCluster(bundleDeployments);
     const entries: ClusterLocatorEntry[] = [];
 
     for (const c of clusters) {
       if (c.id === "local" && !this.includeLocal) continue;
 
       const apiUrl = `${this.rancherUrl}/k8s/clusters/${c.id}`;
+      const clusterName = c.name || c.id;
+      const cr =
+        customResourcesByCluster.get(clusterName) ??
+        customResourcesByCluster.get(c.id) ??
+        [];
       entries.push({
-        name: c.name || c.id,
+        name: clusterName,
         url: apiUrl,
         authProvider: "serviceAccount",
         serviceAccountToken: this.rancherToken,
         caData: c.caCert,
         skipTLSVerify: this.skipTLSVerify,
+        customResources: cr.length > 0 ? cr : undefined,
       });
     }
 
@@ -177,4 +195,126 @@ export class FleetK8sLocator {
     );
     return data.data ?? [];
   }
+
+  private async fetchBundleDeployments(): Promise<any[]> {
+    const deployments: any[] = [];
+    for (const ns of this.fleetNamespaces) {
+      const url = `${this.rancherUrl}/k8s/clusters/local/apis/fleet.cattle.io/v1alpha1/namespaces/${ns}/bundledeployments?limit=500`;
+      this.logger.debug(
+        `FleetK8sLocator fetching BundleDeployments from ${ns} (${url})`,
+      );
+      const res = await fetch(url, {
+        method: "GET",
+        headers: {
+          Authorization: `Bearer ${this.rancherToken}`,
+          Accept: "application/json",
+        },
+      });
+
+      if (!res.ok) {
+        const text = await res.text();
+        this.logger.warn(
+          `FleetK8sLocator failed to fetch BundleDeployments from ${ns}: ${res.status} ${res.statusText} ${text}`,
+        );
+        continue;
+      }
+
+      const data = (await res.json()) as { items?: any[] };
+      deployments.push(...(data.items ?? []));
+    }
+    return deployments;
+  }
+
+  private buildCustomResourcesByCluster(
+    bundleDeployments: any[],
+  ): Map<string, CustomResourceMatcher[]> {
+    const map = new Map<string, CustomResourceMatcher[]>();
+
+    for (const bd of bundleDeployments) {
+      const bdNamespace = bd?.metadata?.namespace ?? "";
+      const clusterName =
+        extractClusterNameFromBundleDeploymentNamespace(bdNamespace);
+      const clusterId =
+        bd?.metadata?.labels?.["fleet.cattle.io/cluster-name"] ?? clusterName;
+      if (!clusterName && !clusterId) continue;
+
+      const resources = bd?.status?.resources ?? [];
+      for (const r of resources) {
+        const apiVersion = r?.apiVersion as string | undefined;
+        const kind = r?.kind as string | undefined;
+        if (!apiVersion || !kind) continue;
+
+        const [group, version] = apiVersion.includes("/")
+          ? apiVersion.split("/")
+          : ["", apiVersion];
+
+        // Skip core/built-in groups to avoid noise
+        if (group === "" || BUILTIN_GROUPS.has(group)) continue;
+
+        const plural = derivePluralFromKind(kind);
+        const matcher: CustomResourceMatcher = {
+          group,
+          apiVersion: version,
+          plural,
+        };
+
+        const listKey = clusterId ?? clusterName;
+        const list = listKey ? (map.get(listKey) ?? []) : [];
+        if (!list.find((cr) => isSameCustomResource(cr, matcher))) {
+          list.push(matcher);
+          if (listKey) {
+            map.set(listKey, list);
+          }
+          if (clusterName && clusterId && clusterId !== clusterName) {
+            // Keep both keys pointing to the same array to avoid duplication
+            map.set(clusterName, list);
+          }
+        }
+      }
+    }
+
+    return map;
+  }
+}
+
+const BUILTIN_GROUPS = new Set([
+  "apps",
+  "batch",
+  "extensions",
+  "networking.k8s.io",
+  "policy",
+  "rbac.authorization.k8s.io",
+  "autoscaling",
+  "coordination.k8s.io",
+  "discovery.k8s.io",
+  "apiextensions.k8s.io",
+  "flowcontrol.apiserver.k8s.io",
+  "certificates.k8s.io",
+  "authentication.k8s.io",
+  "authorization.k8s.io",
+]);
+
+function extractClusterNameFromBundleDeploymentNamespace(
+  namespace: string,
+): string | undefined {
+  const match = namespace.match(/^cluster-fleet-(?:default|local)-(.+)$/);
+  return match?.[1];
+}
+
+function derivePluralFromKind(kind: string): string {
+  const base = kind.replace(/([a-z0-9])([A-Z])/g, "$1-$2").toLowerCase();
+  if (base.endsWith("s")) return base;
+  if (base.endsWith("y")) return `${base.slice(0, -1)}ies`;
+  return `${base}s`;
+}
+
+function isSameCustomResource(
+  a: CustomResourceMatcher,
+  b: CustomResourceMatcher,
+): boolean {
+  return (
+    a.group === b.group &&
+    a.apiVersion === b.apiVersion &&
+    a.plural === b.plural
+  );
 }

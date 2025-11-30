@@ -11,6 +11,7 @@ import {
   coreServices,
   createBackendModule,
 } from "@backstage/backend-plugin-api";
+import { CustomResourceMatcher } from "@backstage/plugin-kubernetes-common";
 import { kubernetesClusterSupplierExtensionPoint } from "@backstage/plugin-kubernetes-node";
 import { FleetK8sLocator } from "./k8sLocator";
 import type { ClusterDetails } from "@backstage/plugin-kubernetes-node";
@@ -65,6 +66,7 @@ export const kubernetesModuleFleetClusterSupplier = createBackendModule({
             serviceAccountToken: string;
             caData?: string;
             skipTLSVerify?: boolean;
+            customResources?: CustomResourceMatcher[];
           }>,
         ): ClusterDetails[] => {
           return clusters.map((c) => ({
@@ -77,6 +79,7 @@ export const kubernetesModuleFleetClusterSupplier = createBackendModule({
             caData: c.caData,
             skipTLSVerify: c.skipTLSVerify,
             skipMetricsLookup: false,
+            customResources: c.customResources,
           }));
         };
 

@@ -54,6 +54,7 @@ export const ANNOTATION_KUBERNETES_NAMESPACE =
   "backstage.io/kubernetes-namespace";
 export const ANNOTATION_KUBERNETES_LABEL_SELECTOR =
   "backstage.io/kubernetes-label-selector";
+export const ANNOTATION_TECHDOCS_ENTITY = "backstage.io/techdocs-entity";
 
 // ============================================================================
 // Entity Naming
@@ -374,6 +375,13 @@ export function mapBundleToComponent(
   const gitRepoName = bundle.metadata?.labels?.["fleet.cattle.io/repo-name"];
   const bundlePath = bundle.metadata?.labels?.["fleet.cattle.io/bundle-path"];
   const status = bundle.status?.display?.state ?? "Unknown";
+  const systemRef = gitRepoName
+    ? stringifyEntityRef({
+        kind: "System",
+        namespace,
+        name: toBackstageName(gitRepoName),
+      })
+    : undefined;
 
   const description =
     fleetYaml?.backstage?.description ??
@@ -437,16 +445,6 @@ export function mapBundleToComponent(
   // Build dependsOn relations - Bundle depends on its parent GitRepo (System)
   const dependsOn: string[] = [];
 
-  if (gitRepoName) {
-    dependsOn.push(
-      stringifyEntityRef({
-        kind: "System",
-        namespace,
-        name: toBackstageName(gitRepoName),
-      }),
-    );
-  }
-
   // From Fleet bundle dependsOn
   if (bundle.spec?.dependsOn) {
     dependsOn.push(
@@ -465,6 +463,7 @@ export function mapBundleToComponent(
     type: fleetYaml?.backstage?.type ?? "service",
     lifecycle: fleetYaml?.backstage?.lifecycle ?? "production",
     owner: fleetYaml?.backstage?.owner ?? "unknown",
+    system: systemRef,
   };
 
   if (dependsOn.length > 0) {
@@ -478,7 +477,12 @@ export function mapBundleToComponent(
       name,
       namespace,
       description,
-      annotations,
+      annotations: {
+        ...annotations,
+        ...(systemRef
+          ? { [ANNOTATION_TECHDOCS_ENTITY]: systemRef }
+          : undefined),
+      },
       tags: [...new Set(tags)],
     },
     spec,
@@ -493,6 +497,7 @@ export function mapBundleDeploymentToResource(
   bundleDeployment: FleetBundleDeployment,
   clusterId: string,
   context: MapperContext,
+  systemRef?: string,
 ): Entity {
   const bdName = bundleDeployment.metadata?.name ?? "fleet-bundle-deployment";
   const originalName = `${bdName}-${clusterId}`;
@@ -526,16 +531,25 @@ export function mapBundleDeploymentToResource(
     annotations[ANNOTATION_FLEET_SOURCE_BUNDLE] = bundleName;
   }
 
-  // BundleDeployment depends on the Bundle (Resource)
+  // BundleDeployment depends on the Bundle Component (logical workload)
   const dependsOn: string[] = [];
   if (bundleName) {
+    const workspaceNamespace =
+      extractWorkspaceNamespaceFromBundleDeploymentNamespace(
+        bundleDeployment.metadata?.namespace ?? "",
+      );
     dependsOn.push(
       stringifyEntityRef({
-        kind: "Resource",
-        namespace,
+        kind: "Component",
+        namespace: workspaceNamespace
+          ? toEntityNamespace(workspaceNamespace)
+          : toEntityNamespace(bundleDeployment.metadata?.namespace ?? ""),
         name: toBackstageName(bundleName),
       }),
     );
+    if (systemRef) {
+      annotations[ANNOTATION_TECHDOCS_ENTITY] = systemRef;
+    }
   }
 
   return {
@@ -619,6 +633,14 @@ export function mapApiDefinitionToApi(
 // ============================================================================
 // Helper Functions
 // ============================================================================
+
+function extractWorkspaceNamespaceFromBundleDeploymentNamespace(
+  namespace: string,
+): string | undefined {
+  const match = namespace.match(/^cluster-fleet-([^-]+)-.+$/);
+  if (!match) return undefined;
+  return `fleet-${match[1]}`;
+}
 
 /**
  * Map Fleet dependsOn to Backstage Component entity references
