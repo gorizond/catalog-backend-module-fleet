@@ -252,16 +252,15 @@ export function mapGitRepoToComponent(
   const kubeNamespace =
     deriveNamespaceFromStatus(gitRepo) ??
     deriveKubernetesNamespace(fleetYaml, gitRepo.metadata?.namespace);
-  const helmReleaseName =
-    fleetYaml?.helm?.releaseName ?? gitRepo.metadata?.name;
-  const kubeSelector =
-    helmReleaseName && `app.kubernetes.io/name=${helmReleaseName}`;
+  const objectsetHash =
+    gitRepo.metadata?.labels?.["objectset.rio.cattle.io/hash"];
 
   if (kubeNamespace) {
     annotations[ANNOTATION_KUBERNETES_NAMESPACE] = kubeNamespace;
   }
-  if (kubeSelector) {
-    annotations[ANNOTATION_KUBERNETES_LABEL_SELECTOR] = kubeSelector;
+  if (objectsetHash) {
+    annotations[ANNOTATION_KUBERNETES_LABEL_SELECTOR] =
+      `objectset.rio.cattle.io/hash=${objectsetHash}`;
   }
 
   // Merge custom annotations from fleet.yaml
@@ -406,9 +405,14 @@ export function mapBundleToResource(
   const defaultNamespace =
     fleetYaml?.defaultNamespace ?? fleetYaml?.namespace ?? "default";
   const helmReleaseName = fleetYaml?.helm?.releaseName ?? bundle.metadata?.name;
+  const objectsetHash =
+    bundle.metadata?.labels?.["objectset.rio.cattle.io/hash"];
 
   annotations[ANNOTATION_KUBERNETES_NAMESPACE] = defaultNamespace;
-  if (helmReleaseName) {
+  if (objectsetHash) {
+    annotations[ANNOTATION_KUBERNETES_LABEL_SELECTOR] =
+      `objectset.rio.cattle.io/hash=${objectsetHash}`;
+  } else if (helmReleaseName) {
     annotations[ANNOTATION_KUBERNETES_LABEL_SELECTOR] =
       `app.kubernetes.io/instance=${helmReleaseName}`;
   }

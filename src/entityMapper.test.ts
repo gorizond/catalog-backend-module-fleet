@@ -62,7 +62,9 @@ const createMockGitRepo = (
     name: "my-app",
     namespace: "fleet-default",
     uid: "123-456",
-    labels: {},
+    labels: {
+      "objectset.rio.cattle.io/hash": "hash-abc",
+    },
     annotations: {},
   },
   spec: {
@@ -93,6 +95,7 @@ const createMockBundle = (
       "fleet.cattle.io/repo-name": "my-app",
       "fleet.cattle.io/bundle-path": ".",
       "fleet.cattle.io/commit": "abc123",
+      "objectset.rio.cattle.io/hash": "bundle-hash",
     },
     annotations: {},
   },
@@ -345,7 +348,7 @@ describe("mapGitRepoToComponent", () => {
       "fleet-default",
     );
     expect(annotations["backstage.io/kubernetes-label-selector"]).toBe(
-      "app.kubernetes.io/name=my-app",
+      "objectset.rio.cattle.io/hash=hash-abc",
     );
   });
 
@@ -635,7 +638,7 @@ describe("mapBundleToResource", () => {
 
     expect(annotations["backstage.io/kubernetes-namespace"]).toBe("my-app");
     expect(annotations["backstage.io/kubernetes-label-selector"]).toBe(
-      "app.kubernetes.io/instance=my-app-release",
+      "objectset.rio.cattle.io/hash=bundle-hash",
     );
   });
 
