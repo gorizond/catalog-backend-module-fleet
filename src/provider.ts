@@ -179,6 +179,7 @@ export class FleetEntityProvider implements EntityProvider {
         this.clusters.map((cluster) =>
           limit(async () => {
             const clusterBatch = await this.fetchCluster(cluster);
+            batch.domains.push(...clusterBatch.domains);
             batch.systems.push(...clusterBatch.systems);
             batch.components.push(...clusterBatch.components);
             batch.resources.push(...clusterBatch.resources);
@@ -200,8 +201,9 @@ export class FleetEntityProvider implements EntityProvider {
       const duration = Date.now() - startTime;
       this.logger.info(
         `FleetEntityProvider[${this.locationKey}] sync completed in ${duration}ms: ` +
-          `${batch.systems.length} systems, ${batch.components.length} components, ` +
-          `${batch.resources.length} resources, ${batch.apis.length} APIs`,
+          `${batch.domains.length} domains, ${batch.systems.length} systems, ` +
+          `${batch.components.length} components, ${batch.resources.length} resources, ` +
+          `${batch.apis.length} APIs`,
       );
     } catch (error) {
       this.logger.error(
@@ -230,11 +232,12 @@ export class FleetEntityProvider implements EntityProvider {
 
     // Create Domain entity for the Fleet Rancher Cluster itself
     const domainEntity = mapFleetClusterToDomain(context);
-    batch.systems.push(domainEntity);
+    batch.domains.push(domainEntity);
 
     // Fetch GitRepos and Bundles from each namespace
     for (const nsConfig of cluster.namespaces) {
       const nsBatch = await this.fetchNamespace(client, cluster, nsConfig);
+      batch.systems.push(...nsBatch.systems);
       batch.components.push(...nsBatch.components);
       batch.resources.push(...nsBatch.resources);
       batch.apis.push(...nsBatch.apis);
@@ -271,6 +274,7 @@ export class FleetEntityProvider implements EntityProvider {
     // Process each GitRepo
     for (const gitRepo of gitRepos) {
       const gitRepoBatch = await this.processGitRepo(client, cluster, gitRepo);
+      batch.systems.push(...gitRepoBatch.systems);
       batch.components.push(...gitRepoBatch.components);
       batch.resources.push(...gitRepoBatch.resources);
       batch.apis.push(...gitRepoBatch.apis);
@@ -350,6 +354,7 @@ export class FleetEntityProvider implements EntityProvider {
     fleetYaml?: FleetYaml,
   ): Promise<EntityBatch> {
     const batch: EntityBatch = {
+      domains: [],
       systems: [],
       components: [],
       resources: [],

@@ -679,6 +679,7 @@ export function extractBundleMetadata(bundle: FleetBundle): {
 // ============================================================================
 
 export interface EntityBatch {
+  domains: Entity[];
   systems: Entity[];
   components: Entity[];
   resources: Entity[];
@@ -687,6 +688,7 @@ export interface EntityBatch {
 
 export function createEmptyBatch(): EntityBatch {
   return {
+    domains: [],
     systems: [],
     components: [],
     resources: [],
@@ -696,6 +698,7 @@ export function createEmptyBatch(): EntityBatch {
 
 export function flattenBatch(batch: EntityBatch): Entity[] {
   return [
+    ...batch.domains,
     ...batch.systems,
     ...batch.components,
     ...batch.resources,
