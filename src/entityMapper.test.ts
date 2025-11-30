@@ -818,6 +818,24 @@ describe("mapBundleDeploymentToResource", () => {
     expect(entity.metadata.tags).toContain("cluster-prod-cluster");
   });
 
+  it("should honor friendly cluster names for dependsOn and tags", () => {
+    const bd = createMockBundleDeployment();
+    const context = createMockContext();
+    const entity = mapBundleDeploymentToResource(
+      bd,
+      "c-abc123",
+      context,
+      undefined,
+      "staging-000",
+    );
+
+    expect(getSpec(entity).dependsOn).toContain(
+      "resource:fleet-default/staging-000",
+    );
+    expect(entity.metadata.tags).toContain("cluster-staging-000");
+    expect(entity.metadata.description).toContain("staging-000");
+  });
+
   it("should truncate long messages", () => {
     const longMessage = "x".repeat(600);
     const bd = createMockBundleDeployment({

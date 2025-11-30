@@ -540,6 +540,7 @@ export function mapBundleDeploymentToResource(
   clusterId: string,
   context: MapperContext,
   systemRef?: string,
+  clusterName?: string,
 ): Entity {
   const bdName = bundleDeployment.metadata?.name ?? "fleet-bundle-deployment";
   const originalName = `${bdName}-${clusterId}`;
@@ -549,7 +550,10 @@ export function mapBundleDeploymentToResource(
   );
 
   const status = bundleDeployment.status?.display?.state ?? "Unknown";
-  const description = `Fleet deployment: ${bdName} on cluster ${clusterId}`;
+  const clusterDisplayName = clusterName ?? clusterId;
+  const clusterResourceName = toBackstageName(clusterDisplayName);
+
+  const description = `Fleet deployment: ${bdName} on cluster ${clusterDisplayName}`;
 
   const annotations: Record<string, string> = {
     [ANNOTATION_LOCATION]: context.locationKey,
@@ -602,7 +606,7 @@ export function mapBundleDeploymentToResource(
     stringifyEntityRef({
       kind: "Resource",
       namespace: clusterWorkspaceNamespace,
-      name: toBackstageName(clusterId),
+      name: clusterResourceName,
     }),
   );
 
@@ -617,7 +621,7 @@ export function mapBundleDeploymentToResource(
       tags: [
         "fleet",
         "fleet-deployment",
-        `cluster-${toBackstageName(clusterId)}`,
+        `cluster-${clusterResourceName}`,
       ],
     },
     spec: {

@@ -475,6 +475,7 @@ export class FleetEntityProvider implements EntityProvider {
             clusterId,
             context,
             parentSystemRef,
+            clusterFriendlyName,
           );
           batch.resources.push(bdResourceEntity);
           resourceRefs.push(
