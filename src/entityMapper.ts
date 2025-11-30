@@ -457,6 +457,7 @@ export function mapBundleToComponent(
 
   const spec: JsonObject = {
     type: fleetYaml?.backstage?.type ?? "service",
+    lifecycle: fleetYaml?.backstage?.lifecycle ?? "production",
     owner: fleetYaml?.backstage?.owner ?? "unknown",
   };
 
