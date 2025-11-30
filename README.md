@@ -11,18 +11,22 @@ This module provides an EntityProvider that synchronizes Rancher Fleet GitOps re
 
 | Fleet Resource | Backstage Entity | Type | Description |
 |----------------|------------------|------|-------------|
-| Fleet Cluster (config) | **System** | - | Rancher Fleet management cluster |
-| GitRepo | **Component** | `service` | Git repository managed by Fleet |
-| Bundle | **Resource** | `fleet-bundle` | Deployed bundle from GitRepo |
+| Fleet Cluster (config) | **Domain** | - | Rancher Fleet management cluster |
+| GitRepo | **System** | - | Git repository managed by Fleet |
+| Bundle | **Component** | `service` | Deployed application/service from GitRepo |
 | BundleDeployment | **Resource** | `fleet-deployment` | Per-cluster deployment status |
 
 ### Entity Hierarchy
 
 ```
-System (rancher-prod)                    <- Fleet management cluster
-  └── Component (my-app)                 <- GitRepo
-        └── Resource (my-app-bundle)     <- Bundle
-              └── Resource (my-app-bundle-prod)  <- BundleDeployment
+Domain (galileosky)                          <- Fleet management cluster
+  └── System (external-dns)                  <- GitRepo
+        ├── Component (external-dns-operator)      <- Bundle (Helm chart)
+        │     └── Resource (external-dns-operator-staging-000)  <- BundleDeployment
+        ├── Component (external-dns-secret)        <- Bundle (Secrets)
+        │     └── Resource (external-dns-secret-staging-000)    <- BundleDeployment
+        └── Component (external-dns-internal-ingress)  <- Bundle (Ingress)
+              └── Resource (external-dns-internal-ingress-staging-000)  <- BundleDeployment
 ```
 
 ## Installation
