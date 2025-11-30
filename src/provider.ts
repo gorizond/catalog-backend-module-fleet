@@ -89,6 +89,30 @@ export class FleetEntityProvider implements EntityProvider {
   private connection?: EntityProviderConnection;
   private clusterNameMap?: Map<string, string>;
 
+  private addDiscoveredClustersToBatch(batch: EntityBatch): void {
+    if (!this.clusterNameMap || this.clusterNameMap.size === 0) {
+      return;
+    }
+    const cluster = this.clusters[0];
+    if (!cluster) return;
+    const context: MapperContext = {
+      cluster,
+      locationKey: this.locationKey,
+      autoTechdocsRef: cluster.autoTechdocsRef,
+    };
+    const workspaceNamespace = "fleet-default";
+
+    for (const [clusterId, clusterName] of this.clusterNameMap.entries()) {
+      const entity = mapClusterToResource(
+        clusterId,
+        clusterName,
+        workspaceNamespace,
+        context,
+      );
+      batch.resources.push(entity);
+    }
+  }
+
   /**
    * Create FleetEntityProvider instances from configuration
    */
@@ -262,6 +286,8 @@ export class FleetEntityProvider implements EntityProvider {
 
     try {
       await this.populateClusterNameMap();
+
+      this.addDiscoveredClustersToBatch(batch);
 
       await Promise.all(
         this.clusters.map((cluster) =>
