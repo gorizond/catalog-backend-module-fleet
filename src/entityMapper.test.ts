@@ -434,7 +434,9 @@ describe("mapGitRepoToSystem", () => {
     const entity = mapGitRepoToSystem(gitRepo, context);
     const annotations = entity.metadata.annotations as Record<string, string>;
 
-    expect(annotations["backstage.io/techdocs-ref"]).toBe("dir:.");
+    expect(annotations["backstage.io/techdocs-ref"]).toBe(
+      "url:https://github.com/example/my-app/-/tree/main",
+    );
   });
 
   it("should use gitrepo description when fleet.yaml is missing", () => {

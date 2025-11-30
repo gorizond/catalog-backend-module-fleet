@@ -314,7 +314,9 @@ export function mapGitRepoToSystem(
     gitRepo.spec?.repo &&
     !annotations["backstage.io/techdocs-ref"]
   ) {
-    annotations["backstage.io/techdocs-ref"] = "dir:.";
+    const repo = gitRepo.spec.repo.replace(/\/$/, "");
+    const branch = gitRepo.spec.branch ?? "main";
+    annotations["backstage.io/techdocs-ref"] = `url:${repo}/-/tree/${branch}`;
   }
 
   const tags = ["fleet", "gitops", ...(fleetYaml?.backstage?.tags ?? [])];
