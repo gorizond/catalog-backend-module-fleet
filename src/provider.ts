@@ -54,6 +54,12 @@ import {
 } from "./entityMapper";
 import { Entity } from "@backstage/catalog-model";
 
+function deriveFriendlyClusterName(clusterId: string): string | undefined {
+  // Fleet appends a random suffix to downstream cluster IDs (e.g., staging-000-edd3151847f4)
+  const match = clusterId.match(/^(.*?)-[a-f0-9]{12}$/);
+  return match ? match[1] : undefined;
+}
+
 // ============================================================================
 // Configuration Types
 // ============================================================================
@@ -461,7 +467,9 @@ export class FleetEntityProvider implements EntityProvider {
           // Cluster entity
           // Try to find friendly name from Rancher clusters if available
           const clusterFriendlyName =
-            this.clusterNameMap?.get(clusterId) ?? clusterId;
+            this.clusterNameMap?.get(clusterId) ??
+            deriveFriendlyClusterName(clusterId) ??
+            clusterId;
           const clusterResource = mapClusterToResource(
             clusterId,
             clusterFriendlyName,
