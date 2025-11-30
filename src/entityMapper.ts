@@ -253,15 +253,14 @@ export function mapGitRepoToSystem(
   const kubeNamespace =
     deriveNamespaceFromStatus(gitRepo) ??
     deriveKubernetesNamespace(fleetYaml, gitRepo.metadata?.namespace);
-  const objectsetHash =
-    gitRepo.metadata?.labels?.["objectset.rio.cattle.io/hash"];
+  const gitRepoName = gitRepo.metadata?.name;
 
   if (kubeNamespace) {
     annotations[ANNOTATION_KUBERNETES_NAMESPACE] = kubeNamespace;
   }
-  if (objectsetHash) {
+  if (gitRepoName) {
     annotations[ANNOTATION_KUBERNETES_LABEL_SELECTOR] =
-      `objectset.rio.cattle.io/hash=${objectsetHash}`;
+      `app.kubernetes.io/name=${gitRepoName}`;
   }
 
   // Merge custom annotations from fleet.yaml
@@ -400,13 +399,20 @@ export function mapBundleToComponent(
   }
 
   // Kubernetes integration annotations for Backstage K8s plugin
-  const defaultNamespace =
-    fleetYaml?.defaultNamespace ?? fleetYaml?.namespace ?? "default";
+  // Determine the target namespace where resources will be deployed
+  const targetNamespace =
+    bundle.spec?.targetNamespace ??
+    bundle.spec?.defaultNamespace ??
+    bundle.spec?.namespace ??
+    fleetYaml?.targetNamespace ??
+    fleetYaml?.defaultNamespace ??
+    fleetYaml?.namespace ??
+    "default";
   const helmReleaseName = fleetYaml?.helm?.releaseName ?? bundle.metadata?.name;
   const objectsetHash =
     bundle.metadata?.labels?.["objectset.rio.cattle.io/hash"];
 
-  annotations[ANNOTATION_KUBERNETES_NAMESPACE] = defaultNamespace;
+  annotations[ANNOTATION_KUBERNETES_NAMESPACE] = targetNamespace;
 
   // Prefer helm release name for Helm-based bundles (standard Helm label)
   if (helmReleaseName) {
