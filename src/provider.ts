@@ -487,9 +487,13 @@ export class FleetEntityProvider implements EntityProvider {
             ) ?? "default";
           // Cluster entity
           // Try to find friendly name from Rancher clusters if available
+          const derivedClusterId = deriveFriendlyClusterName(clusterId);
           const clusterFriendlyName =
             this.clusterNameMap?.get(clusterId) ??
-            deriveFriendlyClusterName(clusterId) ??
+            (derivedClusterId
+              ? this.clusterNameMap?.get(derivedClusterId)
+              : undefined) ??
+            derivedClusterId ??
             clusterId;
           const clusterResource = mapClusterToResource(
             clusterId,
