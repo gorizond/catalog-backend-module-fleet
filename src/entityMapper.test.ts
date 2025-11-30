@@ -5,6 +5,7 @@ import {
   mapBundleToComponent,
   mapBundleDeploymentToResource,
   mapApiDefinitionToApi,
+  mapClusterToResource,
   toBackstageName,
   toStableBackstageName,
   toEntityNamespace,
@@ -786,6 +787,9 @@ describe("mapBundleDeploymentToResource", () => {
     expect(getSpec(entity).dependsOn).toContain(
       "component:fleet-default/my-app-main",
     );
+    expect(getSpec(entity).dependsOn).toContain(
+      "resource:fleet-default/prod-cluster",
+    );
   });
 
   it("should add techdocs entity annotation when parent System is known", () => {
@@ -856,7 +860,28 @@ describe("mapBundleDeploymentToResource", () => {
     const context = createMockContext();
     const entity = mapBundleDeploymentToResource(bd, "prod", context);
 
-    expect(getSpec(entity).dependsOn).toBeUndefined();
+    expect(getSpec(entity).dependsOn).toContain("resource:fleet-default/prod");
+  });
+});
+
+// ============================================================================"
+// mapClusterToResource Tests
+// ============================================================================"
+
+describe("mapClusterToResource", () => {
+  it("should create cluster Resource with kubernetes-id", () => {
+    const context = createMockContext();
+    const entity = mapClusterToResource(
+      "prod-cluster",
+      "fleet-default",
+      context,
+    );
+
+    expect(entity.kind).toBe("Resource");
+    expect(entity.metadata.name).toBe("prod-cluster");
+    expect(entity.metadata.namespace).toBe("fleet-default");
+    const annotations = entity.metadata.annotations as Record<string, string>;
+    expect(annotations["backstage.io/kubernetes-id"]).toBe("prod-cluster");
   });
 });
 

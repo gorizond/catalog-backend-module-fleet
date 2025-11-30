@@ -47,7 +47,10 @@ import {
   EntityBatch,
   createEmptyBatch,
   flattenBatch,
+  mapClusterToResource,
+  extractWorkspaceNamespaceFromBundleDeploymentNamespace,
 } from "./entityMapper";
+import { Entity } from "@backstage/catalog-model";
 
 // ============================================================================
 // Configuration Types
@@ -156,6 +159,19 @@ export class FleetEntityProvider implements EntityProvider {
     return this.schedule;
   }
 
+  private dedupeEntities(entities: Entity[]): Entity[] {
+    const seen = new Set<string>();
+    const result: Entity[] = [];
+    for (const entity of entities) {
+      const ns = entity.metadata?.namespace ?? "default";
+      const key = `${entity.kind}:${ns}:${entity.metadata?.name}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      result.push(entity);
+    }
+    return result;
+  }
+
   async connect(connection: EntityProviderConnection): Promise<void> {
     this.connection = connection;
     this.logger.info(`Connected FleetEntityProvider[${this.locationKey}]`);
@@ -189,7 +205,7 @@ export class FleetEntityProvider implements EntityProvider {
         ),
       );
 
-      const entities = flattenBatch(batch);
+      const entities = this.dedupeEntities(flattenBatch(batch));
 
       await this.connection.applyMutation({
         type: "full",
@@ -394,6 +410,18 @@ export class FleetEntityProvider implements EntityProvider {
           bd.metadata?.namespace ?? "",
         );
         if (clusterId) {
+          const workspaceNamespace =
+            extractWorkspaceNamespaceFromBundleDeploymentNamespace(
+              bd.metadata?.namespace ?? "",
+            ) ?? "default";
+          // Cluster entity
+          const clusterResource = mapClusterToResource(
+            clusterId,
+            workspaceNamespace,
+            context,
+          );
+          batch.resources.push(clusterResource);
+
           const bdResourceEntity = mapBundleDeploymentToResource(
             bd,
             clusterId,

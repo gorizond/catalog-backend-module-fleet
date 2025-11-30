@@ -205,6 +205,43 @@ export function mapFleetClusterToDomain(
 }
 
 // ============================================================================
+// Cluster (downstream) → Resource (type: kubernetes-cluster)
+// ============================================================================
+
+export function mapClusterToResource(
+  clusterId: string,
+  namespace: string,
+  context: MapperContext,
+): Entity {
+  const name = toBackstageName(clusterId);
+  const entityNamespace = toEntityNamespace(namespace);
+  const annotations: Record<string, string> = {
+    [ANNOTATION_LOCATION]: context.locationKey,
+    [ANNOTATION_ORIGIN_LOCATION]: context.locationKey,
+    [ANNOTATION_FLEET_CLUSTER]: clusterId,
+    [ANNOTATION_KUBERNETES_ID]: clusterId,
+  };
+
+  const description = `Downstream Kubernetes cluster: ${clusterId}`;
+
+  return {
+    apiVersion: "backstage.io/v1alpha1",
+    kind: "Resource",
+    metadata: {
+      name,
+      namespace: entityNamespace,
+      description,
+      annotations,
+      tags: ["fleet", "kubernetes-cluster"],
+    },
+    spec: {
+      type: "kubernetes-cluster",
+      owner: "platform-team",
+    },
+  };
+}
+
+// ============================================================================
 // GitRepo → System
 // ============================================================================
 
@@ -530,6 +567,10 @@ export function mapBundleDeploymentToResource(
   if (bundleName) {
     annotations[ANNOTATION_FLEET_SOURCE_BUNDLE] = bundleName;
   }
+  const clusterWorkspaceNamespace =
+    extractWorkspaceNamespaceFromBundleDeploymentNamespace(
+      bundleDeployment.metadata?.namespace ?? "",
+    ) ?? "default";
 
   // BundleDeployment depends on the Bundle Component (logical workload)
   const dependsOn: string[] = [];
@@ -551,6 +592,14 @@ export function mapBundleDeploymentToResource(
       annotations[ANNOTATION_TECHDOCS_ENTITY] = systemRef;
     }
   }
+  // Also depend on Cluster entity
+  dependsOn.push(
+    stringifyEntityRef({
+      kind: "Resource",
+      namespace: clusterWorkspaceNamespace,
+      name: toBackstageName(clusterId),
+    }),
+  );
 
   return {
     apiVersion: "backstage.io/v1alpha1",
@@ -641,6 +690,8 @@ function extractWorkspaceNamespaceFromBundleDeploymentNamespace(
   if (!match) return undefined;
   return `fleet-${match[1]}`;
 }
+
+export { extractWorkspaceNamespaceFromBundleDeploymentNamespace };
 
 /**
  * Map Fleet dependsOn to Backstage Component entity references
