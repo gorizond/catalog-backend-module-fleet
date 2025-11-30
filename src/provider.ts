@@ -3,9 +3,9 @@
  * Provides Backstage Catalog entities from Rancher Fleet GitOps resources
  *
  * Entity Mapping:
- * - Fleet Cluster (config) → System (rancher.example.com)
- * - GitRepo → Component (type: service)
- * - Bundle → Resource (type: fleet-bundle)
+ * - Fleet Cluster (config) → Domain
+ * - GitRepo → System
+ * - Bundle → Component (type: service)
  * - BundleDeployment → Resource (type: fleet-deployment)
  */
 
@@ -37,9 +37,9 @@ import {
 } from "./FleetClient";
 
 import {
-  mapFleetClusterToSystem,
-  mapGitRepoToComponent,
-  mapBundleToResource,
+  mapFleetClusterToDomain,
+  mapGitRepoToSystem,
+  mapBundleToComponent,
   mapBundleDeploymentToResource,
   mapApiDefinitionToApi,
   MapperContext,
@@ -228,9 +228,9 @@ export class FleetEntityProvider implements EntityProvider {
       autoTechdocsRef: cluster.autoTechdocsRef,
     };
 
-    // Create System entity for the Fleet Rancher Cluster itself
-    const systemEntity = mapFleetClusterToSystem(context);
-    batch.systems.push(systemEntity);
+    // Create Domain entity for the Fleet Rancher Cluster itself
+    const domainEntity = mapFleetClusterToDomain(context);
+    batch.systems.push(domainEntity);
 
     // Fetch GitRepos and Bundles from each namespace
     for (const nsConfig of cluster.namespaces) {
@@ -304,9 +304,9 @@ export class FleetEntityProvider implements EntityProvider {
       autoTechdocsRef: cluster.autoTechdocsRef,
     };
 
-    // Create Component entity for GitRepo
-    const componentEntity = mapGitRepoToComponent(gitRepo, context);
-    batch.components.push(componentEntity);
+    // Create System entity for GitRepo
+    const systemEntity = mapGitRepoToSystem(gitRepo, context);
+    batch.systems.push(systemEntity);
 
     // Create API entities from fleet.yaml providesApis
     if (cluster.generateApis && fleetYaml?.backstage?.providesApis) {
@@ -365,9 +365,9 @@ export class FleetEntityProvider implements EntityProvider {
       autoTechdocsRef: cluster.autoTechdocsRef,
     };
 
-    // Create Resource entity for Bundle
-    const resourceEntity = mapBundleToResource(bundle, context);
-    batch.resources.push(resourceEntity);
+    // Create Component entity for Bundle
+    const componentEntity = mapBundleToComponent(bundle, context);
+    batch.components.push(componentEntity);
 
     // Fetch and process BundleDeployments (per-cluster status)
     if (cluster.includeBundleDeployments) {

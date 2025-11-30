@@ -3,9 +3,10 @@
  * Converts Fleet Custom Resources to Backstage Catalog Entities
  *
  * Mapping:
- * - Fleet Rancher Cluster (config) → System (rancher.example.com)
- * - GitRepo → Component (type: service)
- * - Bundle → Resource (type: fleet-bundle)
+ * - Fleet Rancher Cluster (config) → Domain
+ * - GitRepo → System
+ * - Bundle → Component (type: service)
+ * - BundleDeployment → Resource (type: fleet-deployment)
  */
 
 import {
@@ -150,11 +151,11 @@ export interface MapperContext {
 }
 
 // ============================================================================
-// Fleet Cluster (config) → System
+// Fleet Cluster (config) → Domain
 // Represents the Rancher Fleet management cluster (e.g., rancher.example.com)
 // ============================================================================
 
-export function mapFleetClusterToSystem(
+export function mapFleetClusterToDomain(
   context: MapperContext,
   entityNamespace: string = "default",
 ): Entity {
@@ -187,7 +188,7 @@ export function mapFleetClusterToSystem(
 
   return {
     apiVersion: "backstage.io/v1alpha1",
-    kind: "System",
+    kind: "Domain",
     metadata: {
       name,
       namespace: entityNamespace,
@@ -203,10 +204,10 @@ export function mapFleetClusterToSystem(
 }
 
 // ============================================================================
-// GitRepo → Component (type: service)
+// GitRepo → System
 // ============================================================================
 
-export function mapGitRepoToComponent(
+export function mapGitRepoToSystem(
   gitRepo: FleetGitRepo,
   context: MapperContext,
 ): Entity {
@@ -314,25 +315,22 @@ export function mapGitRepoToComponent(
     consumesApis.push(...fleetYaml.backstage.consumesApis);
   }
 
-  // System relation to parent Fleet Cluster
-  const system = stringifyEntityRef({
-    kind: "System",
+  // Domain relation to parent Fleet Cluster
+  const domain = stringifyEntityRef({
+    kind: "Domain",
     namespace: "default",
     name: toBackstageName(context.cluster.name),
   });
 
-  // Use 'service' type for full Backstage integration (Kubernetes tab, etc.)
-  // Can be overridden via fleet.yaml backstage.type
   const derivedOwner =
     fleetYaml?.backstage?.owner ??
     deriveOwnerFromRepo(gitRepo.spec?.repo) ??
     "group:default/default";
 
   const spec: JsonObject = {
-    type: fleetYaml?.backstage?.type ?? "service",
     lifecycle: statusToLifecycle(status),
     owner: derivedOwner,
-    system,
+    domain,
   };
 
   if (dependsOn.length > 0) {
@@ -347,7 +345,7 @@ export function mapGitRepoToComponent(
 
   return {
     apiVersion: "backstage.io/v1alpha1",
-    kind: "Component",
+    kind: "System",
     metadata: {
       name,
       namespace,
@@ -361,10 +359,10 @@ export function mapGitRepoToComponent(
 }
 
 // ============================================================================
-// Bundle → Resource (type: fleet-bundle)
+// Bundle → Component (type: service)
 // ============================================================================
 
-export function mapBundleToResource(
+export function mapBundleToComponent(
   bundle: FleetBundle,
   context: MapperContext,
 ): Entity {
@@ -427,13 +425,13 @@ export function mapBundleToResource(
 
   const tags = ["fleet", "fleet-bundle", ...(fleetYaml?.backstage?.tags ?? [])];
 
-  // Build dependsOn relations - Bundle depends on its parent GitRepo (Component)
+  // Build dependsOn relations - Bundle depends on its parent GitRepo (System)
   const dependsOn: string[] = [];
 
   if (gitRepoName) {
     dependsOn.push(
       stringifyEntityRef({
-        kind: "Component",
+        kind: "System",
         namespace,
         name: toBackstageName(gitRepoName),
       }),
@@ -455,7 +453,7 @@ export function mapBundleToResource(
   }
 
   const spec: JsonObject = {
-    type: "fleet-bundle",
+    type: fleetYaml?.backstage?.type ?? "service",
     owner: fleetYaml?.backstage?.owner ?? "unknown",
   };
 
@@ -465,7 +463,7 @@ export function mapBundleToResource(
 
   return {
     apiVersion: "backstage.io/v1alpha1",
-    kind: "Resource",
+    kind: "Component",
     metadata: {
       name,
       namespace,

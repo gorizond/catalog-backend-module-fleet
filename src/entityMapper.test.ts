@@ -1,8 +1,8 @@
 import { Entity } from "@backstage/catalog-model";
 import {
-  mapFleetClusterToSystem,
-  mapGitRepoToComponent,
-  mapBundleToResource,
+  mapFleetClusterToDomain,
+  mapGitRepoToSystem,
+  mapBundleToComponent,
   mapBundleDeploymentToResource,
   mapApiDefinitionToApi,
   toBackstageName,
@@ -221,15 +221,15 @@ describe("toEntityNamespace", () => {
 });
 
 // ============================================================================
-// mapFleetClusterToSystem Tests
+// mapFleetClusterToDomain Tests
 // ============================================================================
 
-describe("mapFleetClusterToSystem", () => {
-  it("should create a System entity from cluster config", () => {
+describe("mapFleetClusterToDomain", () => {
+  it("should create a Domain entity from cluster config", () => {
     const context = createMockContext();
-    const entity = mapFleetClusterToSystem(context);
+    const entity = mapFleetClusterToDomain(context);
 
-    expect(entity.kind).toBe("System");
+    expect(entity.kind).toBe("Domain");
     expect(entity.metadata.name).toBe("test-cluster");
     expect(entity.metadata.namespace).toBe("default");
     expect(getSpec(entity).owner).toBe("platform-team");
@@ -241,14 +241,14 @@ describe("mapFleetClusterToSystem", () => {
         url: "https://rancher.example.com/k8s/clusters/local",
       }),
     });
-    const entity = mapFleetClusterToSystem(context);
+    const entity = mapFleetClusterToDomain(context);
 
     expect(entity.metadata.description).toContain("rancher.example.com");
   });
 
   it("should include Fleet annotations", () => {
     const context = createMockContext();
-    const entity = mapFleetClusterToSystem(context);
+    const entity = mapFleetClusterToDomain(context);
     const annotations = entity.metadata.annotations as Record<string, string>;
 
     expect(annotations[ANNOTATION_FLEET_CLUSTER]).toBe("test-cluster");
@@ -263,7 +263,7 @@ describe("mapFleetClusterToSystem", () => {
         namespaces: [{ name: "fleet-default" }, { name: "fleet-local" }],
       }),
     });
-    const entity = mapFleetClusterToSystem(context);
+    const entity = mapFleetClusterToDomain(context);
     const annotations = entity.metadata.annotations as Record<string, string>;
 
     expect(annotations["fleet.cattle.io/namespaces"]).toBe(
@@ -273,7 +273,7 @@ describe("mapFleetClusterToSystem", () => {
 
   it("should include links to Rancher", () => {
     const context = createMockContext();
-    const entity = mapFleetClusterToSystem(context);
+    const entity = mapFleetClusterToDomain(context);
 
     expect(entity.metadata.links).toContainEqual({
       url: "https://rancher.example.com",
@@ -283,7 +283,7 @@ describe("mapFleetClusterToSystem", () => {
 
   it("should use custom entity namespace when provided", () => {
     const context = createMockContext();
-    const entity = mapFleetClusterToSystem(context, "custom-namespace");
+    const entity = mapFleetClusterToDomain(context, "custom-namespace");
 
     expect(entity.metadata.namespace).toBe("custom-namespace");
   });
@@ -294,23 +294,23 @@ describe("mapFleetClusterToSystem", () => {
         url: "not-a-valid-url",
       }),
     });
-    const entity = mapFleetClusterToSystem(context);
+    const entity = mapFleetClusterToDomain(context);
 
     expect(entity.metadata.description).toContain("not-a-valid-url");
   });
 });
 
 // ============================================================================
-// mapGitRepoToComponent Tests
+// mapGitRepoToSystem Tests
 // ============================================================================
 
-describe("mapGitRepoToComponent", () => {
-  it("should create a Component entity from GitRepo", () => {
+describe("mapGitRepoToSystem", () => {
+  it("should create a System entity from GitRepo", () => {
     const gitRepo = createMockGitRepo();
     const context = createMockContext();
-    const entity = mapGitRepoToComponent(gitRepo, context);
+    const entity = mapGitRepoToSystem(gitRepo, context);
 
-    expect(entity.kind).toBe("Component");
+    expect(entity.kind).toBe("System");
     expect(entity.metadata.name).toBe("my-app");
     expect(entity.metadata.namespace).toBe("fleet-default");
   });
@@ -318,15 +318,15 @@ describe("mapGitRepoToComponent", () => {
   it("should set type to service by default", () => {
     const gitRepo = createMockGitRepo();
     const context = createMockContext();
-    const entity = mapGitRepoToComponent(gitRepo, context);
+    const entity = mapGitRepoToSystem(gitRepo, context);
 
-    expect(getSpec(entity).type).toBe("service");
+    expect(getSpec(entity).type).toBeUndefined(); // System has no type
   });
 
   it("should include Fleet annotations", () => {
     const gitRepo = createMockGitRepo();
     const context = createMockContext();
-    const entity = mapGitRepoToComponent(gitRepo, context);
+    const entity = mapGitRepoToSystem(gitRepo, context);
     const annotations = entity.metadata.annotations as Record<string, string>;
 
     expect(annotations[ANNOTATION_FLEET_REPO]).toBe(
@@ -341,7 +341,7 @@ describe("mapGitRepoToComponent", () => {
   it("should include Kubernetes annotations (namespace/selector)", () => {
     const gitRepo = createMockGitRepo();
     const context = createMockContext();
-    const entity = mapGitRepoToComponent(gitRepo, context);
+    const entity = mapGitRepoToSystem(gitRepo, context);
     const annotations = entity.metadata.annotations as Record<string, string>;
 
     expect(annotations["backstage.io/kubernetes-namespace"]).toBe(
@@ -355,7 +355,7 @@ describe("mapGitRepoToComponent", () => {
   it("should include source location annotation", () => {
     const gitRepo = createMockGitRepo();
     const context = createMockContext();
-    const entity = mapGitRepoToComponent(gitRepo, context);
+    const entity = mapGitRepoToSystem(gitRepo, context);
     const annotations = entity.metadata.annotations as Record<string, string>;
 
     expect(annotations["backstage.io/source-location"]).toBe(
@@ -363,20 +363,12 @@ describe("mapGitRepoToComponent", () => {
     );
   });
 
-  it("should set system reference to parent cluster", () => {
-    const gitRepo = createMockGitRepo();
-    const context = createMockContext();
-    const entity = mapGitRepoToComponent(gitRepo, context);
-
-    expect(getSpec(entity).system).toBe("system:default/test-cluster");
-  });
-
   it("should set lifecycle based on status", () => {
     const gitRepo = createMockGitRepo({
       status: { display: { state: "Ready" } },
     });
     const context = createMockContext();
-    const entity = mapGitRepoToComponent(gitRepo, context);
+    const entity = mapGitRepoToSystem(gitRepo, context);
 
     expect(getSpec(entity).lifecycle).toBe("production");
   });
@@ -386,7 +378,7 @@ describe("mapGitRepoToComponent", () => {
       status: { display: { state: "ErrApplied" } },
     });
     const context = createMockContext();
-    const entity = mapGitRepoToComponent(gitRepo, context);
+    const entity = mapGitRepoToSystem(gitRepo, context);
 
     expect(getSpec(entity).lifecycle).toBe("deprecated");
   });
@@ -394,7 +386,7 @@ describe("mapGitRepoToComponent", () => {
   it("should include links to Git repository", () => {
     const gitRepo = createMockGitRepo();
     const context = createMockContext();
-    const entity = mapGitRepoToComponent(gitRepo, context);
+    const entity = mapGitRepoToSystem(gitRepo, context);
 
     expect(entity.metadata.links).toContainEqual({
       url: "https://github.com/example/my-app",
@@ -406,7 +398,7 @@ describe("mapGitRepoToComponent", () => {
     const gitRepo = createMockGitRepo();
     const fleetYaml = createMockFleetYaml();
     const context = createMockContext({ fleetYaml });
-    const entity = mapGitRepoToComponent(gitRepo, context);
+    const entity = mapGitRepoToSystem(gitRepo, context);
 
     expect(entity.metadata.description).toBe("My application");
   });
@@ -415,7 +407,7 @@ describe("mapGitRepoToComponent", () => {
     const gitRepo = createMockGitRepo();
     const fleetYaml = createMockFleetYaml();
     const context = createMockContext({ fleetYaml });
-    const entity = mapGitRepoToComponent(gitRepo, context);
+    const entity = mapGitRepoToSystem(gitRepo, context);
 
     expect(getSpec(entity).owner).toBe("team-platform");
   });
@@ -430,7 +422,7 @@ describe("mapGitRepoToComponent", () => {
       status: { display: { state: "Ready" } },
     });
     const context = createMockContext({ fleetYaml: undefined });
-    const entity = mapGitRepoToComponent(gitRepo, context);
+    const entity = mapGitRepoToSystem(gitRepo, context);
 
     expect(getSpec(entity).owner).toBe("group:default/example");
   });
@@ -438,7 +430,7 @@ describe("mapGitRepoToComponent", () => {
   it("should add techdocs ref annotation when enabled", () => {
     const gitRepo = createMockGitRepo();
     const context = createMockContext();
-    const entity = mapGitRepoToComponent(gitRepo, context);
+    const entity = mapGitRepoToSystem(gitRepo, context);
     const annotations = entity.metadata.annotations as Record<string, string>;
 
     expect(annotations["backstage.io/techdocs-ref"]).toBe("dir:.");
@@ -453,7 +445,7 @@ describe("mapGitRepoToComponent", () => {
       },
     });
     const context = createMockContext({ fleetYaml: undefined });
-    const entity = mapGitRepoToComponent(gitRepo, context);
+    const entity = mapGitRepoToSystem(gitRepo, context);
 
     expect(entity.metadata.description).toBe("Description from GitRepo");
   });
@@ -470,7 +462,7 @@ describe("mapGitRepoToComponent", () => {
       },
     });
     const context = createMockContext({ fleetYaml: undefined });
-    const entity = mapGitRepoToComponent(gitRepo, context);
+    const entity = mapGitRepoToSystem(gitRepo, context);
 
     expect(entity.metadata.description).toBe("Fleet annotation description");
   });
@@ -481,16 +473,16 @@ describe("mapGitRepoToComponent", () => {
       backstage: { type: "website" },
     });
     const context = createMockContext({ fleetYaml });
-    const entity = mapGitRepoToComponent(gitRepo, context);
+    const entity = mapGitRepoToSystem(gitRepo, context);
 
-    expect(getSpec(entity).type).toBe("website");
+    expect(getSpec(entity).type).toBeUndefined();
   });
 
   it("should include fleet.yaml tags", () => {
     const gitRepo = createMockGitRepo();
     const fleetYaml = createMockFleetYaml();
     const context = createMockContext({ fleetYaml });
-    const entity = mapGitRepoToComponent(gitRepo, context);
+    const entity = mapGitRepoToSystem(gitRepo, context);
 
     expect(entity.metadata.tags).toContain("production");
     expect(entity.metadata.tags).toContain("fleet");
@@ -504,7 +496,7 @@ describe("mapGitRepoToComponent", () => {
       },
     });
     const context = createMockContext({ fleetYaml });
-    const entity = mapGitRepoToComponent(gitRepo, context);
+    const entity = mapGitRepoToSystem(gitRepo, context);
 
     expect(getSpec(entity).dependsOn).toContain("component:default/database");
   });
@@ -517,7 +509,7 @@ describe("mapGitRepoToComponent", () => {
       },
     });
     const context = createMockContext({ fleetYaml });
-    const entity = mapGitRepoToComponent(gitRepo, context);
+    const entity = mapGitRepoToSystem(gitRepo, context);
 
     expect(getSpec(entity).providesApis).toContain("api:fleet-default/my-api");
   });
@@ -530,7 +522,7 @@ describe("mapGitRepoToComponent", () => {
       },
     });
     const context = createMockContext({ fleetYaml });
-    const entity = mapGitRepoToComponent(gitRepo, context);
+    const entity = mapGitRepoToSystem(gitRepo, context);
 
     expect(getSpec(entity).consumesApis).toContain("api:default/auth-api");
   });
@@ -545,7 +537,7 @@ describe("mapGitRepoToComponent", () => {
       },
     });
     const context = createMockContext({ fleetYaml });
-    const entity = mapGitRepoToComponent(gitRepo, context);
+    const entity = mapGitRepoToSystem(gitRepo, context);
     const annotations = entity.metadata.annotations as Record<string, string>;
 
     expect(annotations["pagerduty.com/integration-key"]).toBe("abc123");
@@ -556,7 +548,7 @@ describe("mapGitRepoToComponent", () => {
       spec: { repo: "https://github.com/test/repo" },
     };
     const context = createMockContext();
-    const entity = mapGitRepoToComponent(gitRepo, context);
+    const entity = mapGitRepoToSystem(gitRepo, context);
 
     expect(entity.metadata.name).toBe("fleet-gitrepo");
     expect(entity.metadata.namespace).toBe("fleet-default");
@@ -565,7 +557,7 @@ describe("mapGitRepoToComponent", () => {
   it("should handle missing status gracefully", () => {
     const gitRepo = createMockGitRepo({ status: undefined });
     const context = createMockContext();
-    const entity = mapGitRepoToComponent(gitRepo, context);
+    const entity = mapGitRepoToSystem(gitRepo, context);
 
     expect(getSpec(entity).lifecycle).toBe("production");
   });
@@ -573,7 +565,7 @@ describe("mapGitRepoToComponent", () => {
   it("should include ready clusters in annotations", () => {
     const gitRepo = createMockGitRepo();
     const context = createMockContext();
-    const entity = mapGitRepoToComponent(gitRepo, context);
+    const entity = mapGitRepoToSystem(gitRepo, context);
     const annotations = entity.metadata.annotations as Record<string, string>;
 
     expect(annotations["fleet.cattle.io/ready-clusters"]).toBe("3/3");
@@ -587,7 +579,7 @@ describe("mapGitRepoToComponent", () => {
       },
     });
     const context = createMockContext();
-    const entity = mapGitRepoToComponent(gitRepo, context);
+    const entity = mapGitRepoToSystem(gitRepo, context);
     const annotations = entity.metadata.annotations as Record<string, string>;
 
     expect(annotations["fleet.cattle.io/targets"]).toBe('["prod","staging"]');
@@ -598,29 +590,29 @@ describe("mapGitRepoToComponent", () => {
 // mapBundleToResource Tests
 // ============================================================================
 
-describe("mapBundleToResource", () => {
-  it("should create a Resource entity from Bundle", () => {
+describe("mapBundleToComponent", () => {
+  it("should create a Component entity from Bundle", () => {
     const bundle = createMockBundle();
     const context = createMockContext();
-    const entity = mapBundleToResource(bundle, context);
+    const entity = mapBundleToComponent(bundle, context);
 
-    expect(entity.kind).toBe("Resource");
+    expect(entity.kind).toBe("Component");
     expect(entity.metadata.name).toBe("my-app-main");
     expect(entity.metadata.namespace).toBe("fleet-default");
   });
 
-  it("should set type to fleet-bundle", () => {
+  it("should set type to service", () => {
     const bundle = createMockBundle();
     const context = createMockContext();
-    const entity = mapBundleToResource(bundle, context);
+    const entity = mapBundleToComponent(bundle, context);
 
-    expect(getSpec(entity).type).toBe("fleet-bundle");
+    expect(getSpec(entity).type).toBe("service");
   });
 
   it("should include Fleet annotations", () => {
     const bundle = createMockBundle();
     const context = createMockContext();
-    const entity = mapBundleToResource(bundle, context);
+    const entity = mapBundleToComponent(bundle, context);
     const annotations = entity.metadata.annotations as Record<string, string>;
 
     expect(annotations[ANNOTATION_FLEET_STATUS]).toBe("Ready");
@@ -633,7 +625,7 @@ describe("mapBundleToResource", () => {
     const bundle = createMockBundle();
     const fleetYaml = createMockFleetYaml();
     const context = createMockContext({ fleetYaml });
-    const entity = mapBundleToResource(bundle, context);
+    const entity = mapBundleToComponent(bundle, context);
     const annotations = entity.metadata.annotations as Record<string, string>;
 
     expect(annotations["backstage.io/kubernetes-namespace"]).toBe("my-app");
@@ -645,18 +637,16 @@ describe("mapBundleToResource", () => {
   it("should depend on parent GitRepo Component", () => {
     const bundle = createMockBundle();
     const context = createMockContext();
-    const entity = mapBundleToResource(bundle, context);
+    const entity = mapBundleToComponent(bundle, context);
 
-    expect(getSpec(entity).dependsOn).toContain(
-      "component:fleet-default/my-app",
-    );
+    expect(getSpec(entity).dependsOn).toContain("system:fleet-default/my-app");
   });
 
   it("should include fleet.yaml tags", () => {
     const bundle = createMockBundle();
     const fleetYaml = createMockFleetYaml();
     const context = createMockContext({ fleetYaml });
-    const entity = mapBundleToResource(bundle, context);
+    const entity = mapBundleToComponent(bundle, context);
 
     expect(entity.metadata.tags).toContain("production");
     expect(entity.metadata.tags).toContain("fleet-bundle");
@@ -666,7 +656,7 @@ describe("mapBundleToResource", () => {
     const bundle = createMockBundle();
     const fleetYaml = createMockFleetYaml();
     const context = createMockContext({ fleetYaml });
-    const entity = mapBundleToResource(bundle, context);
+    const entity = mapBundleToComponent(bundle, context);
 
     expect(getSpec(entity).owner).toBe("team-platform");
   });
@@ -680,7 +670,7 @@ describe("mapBundleToResource", () => {
       },
     });
     const context = createMockContext();
-    const entity = mapBundleToResource(bundle, context);
+    const entity = mapBundleToComponent(bundle, context);
 
     expect(entity.metadata.name).toBe("orphan-bundle");
     expect(getSpec(entity).dependsOn).toBeUndefined();
@@ -693,7 +683,7 @@ describe("mapBundleToResource", () => {
       },
     });
     const context = createMockContext();
-    const entity = mapBundleToResource(bundle, context);
+    const entity = mapBundleToComponent(bundle, context);
 
     expect(getSpec(entity).dependsOn).toContain(
       "resource:fleet-default/cert-manager-bundle",
@@ -708,7 +698,7 @@ describe("mapBundleToResource", () => {
       },
     });
     const context = createMockContext({ fleetYaml });
-    const entity = mapBundleToResource(bundle, context);
+    const entity = mapBundleToComponent(bundle, context);
     const annotations = entity.metadata.annotations as Record<string, string>;
 
     expect(annotations["custom.io/key"]).toBe("value");

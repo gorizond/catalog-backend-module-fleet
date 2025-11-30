@@ -83,9 +83,9 @@ export type { FleetClientOptions, ListOptions } from "./FleetClient";
 
 // Entity mapping utilities
 export {
-  mapFleetClusterToSystem,
-  mapGitRepoToComponent,
-  mapBundleToResource,
+  mapFleetClusterToDomain,
+  mapGitRepoToSystem,
+  mapBundleToComponent,
   mapBundleDeploymentToResource,
   mapApiDefinitionToApi,
   toBackstageName,
