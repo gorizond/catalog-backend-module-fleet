@@ -337,6 +337,7 @@ export class FleetEntityProvider implements EntityProvider {
           bundle,
           fleetYaml,
         );
+        batch.components.push(...bundleBatch.components);
         batch.resources.push(...bundleBatch.resources);
       }
     }
