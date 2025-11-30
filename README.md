@@ -12,6 +12,7 @@ This module provides an EntityProvider that synchronizes Rancher Fleet GitOps re
 | Fleet Resource | Backstage Entity | Type | Description |
 |----------------|------------------|------|-------------|
 | Fleet Cluster (config) | **Domain** | - | Rancher Fleet management cluster |
+| Downstream Cluster (target) | **Resource** | `kubernetes-cluster` | Discovered Rancher downstream cluster |
 | GitRepo | **System** | - | Git repository managed by Fleet |
 | Bundle | **Component** | `service` | Deployed application/service from GitRepo |
 | BundleDeployment | **Resource** | `fleet-deployment` | Per-cluster deployment status |
@@ -21,6 +22,7 @@ This module provides an EntityProvider that synchronizes Rancher Fleet GitOps re
 - Component → System via `spec.system` (parent GitRepo)
 - Component → dependsOn → BundleDeployment Resources (per-cluster deployments)
 - BundleDeployment Resource → dependsOn → Component (logical bundle)
+- BundleDeployment Resource → dependsOn → Cluster Resource (target cluster)
 
 ### Entity Hierarchy
 
@@ -29,10 +31,13 @@ Domain (galileosky)                          <- Fleet management cluster
   └── System (external-dns)                  <- GitRepo
         ├── Component (external-dns-operator)      <- Bundle (Helm chart)
         │     └── Resource (external-dns-operator-staging-000)  <- BundleDeployment
+        │           ↳ dependsOn → Resource (staging-000)         <- Cluster
         ├── Component (external-dns-secret)        <- Bundle (Secrets)
         │     └── Resource (external-dns-secret-staging-000)    <- BundleDeployment
+        │           ↳ dependsOn → Resource (staging-000)         <- Cluster
         └── Component (external-dns-internal-ingress)  <- Bundle (Ingress)
               └── Resource (external-dns-internal-ingress-staging-000)  <- BundleDeployment
+                    ↳ dependsOn → Resource (staging-000)                 <- Cluster
 ```
 
 ## Installation
@@ -198,8 +203,8 @@ Entities are annotated with Fleet metadata for integration with other Backstage 
 | `fleet.cattle.io/cluster` | Fleet management cluster name |
 | `fleet.cattle.io/status` | Current status (Ready, NotReady, etc.) |
 | `fleet.cattle.io/ready-clusters` | Ready clusters count (e.g., "3/3") |
-| `backstage.io/techdocs-ref` | Auto set to `dir:.` (can be overridden) |
-| `backstage.io/techdocs-entity` | Points to parent System for TechDocs |
+| `backstage.io/techdocs-ref` | Auto set to repo tree URL (`url:<repo>/-/tree/<branch>`) when available; fallback `dir:.` (can be overridden) |
+| `backstage.io/techdocs-entity` | Points to parent System for shared TechDocs |
 | `backstage.io/kubernetes-id` | Kubernetes plugin integration |
 | `backstage.io/kubernetes-namespace` | Target namespace (from fleet.yaml or GitRepo namespace) |
 | `backstage.io/kubernetes-label-selector` | Helm release selector (`app.kubernetes.io/instance=...`) |
@@ -211,7 +216,7 @@ Entities are annotated with Fleet metadata for integration with other Backstage 
 | `fleet.cattle.io/repo-name` | Parent GitRepo name |
 | `fleet.cattle.io/bundle-path` | Path within GitRepo |
 | `fleet.cattle.io/status` | Bundle status |
-| `backstage.io/techdocs-entity` | Points to parent System for TechDocs |
+| `backstage.io/techdocs-entity` | Points to parent System for shared TechDocs |
 | `backstage.io/kubernetes-id` | Kubernetes plugin integration |
 | `backstage.io/kubernetes-namespace` | Target namespace |
 | `backstage.io/kubernetes-label-selector` | Helm release label selector |
@@ -223,13 +228,15 @@ Entities are automatically annotated for the Backstage Kubernetes plugin:
 - `backstage.io/kubernetes-id`: Links to the Fleet cluster
 - `backstage.io/kubernetes-namespace`: Target deployment namespace
 - `backstage.io/kubernetes-label-selector`: Helm release selector (`System: app.kubernetes.io/name=<gitrepo>; Component: app.kubernetes.io/instance=<release>`)
+- Downstream clusters are discovered automatically (via Rancher `/v3/clusters`, friendly names preserved) and emitted as `Resource` `kubernetes-cluster`; BundleDeployments depend on the target cluster resource.
+- CustomResources per cluster are pulled dynamically from BundleDeployment `status.resources` so `kubernetes.clusterLocatorMethods[].customResources` stays in sync with Fleet.
 
 This enables the Kubernetes tab in Backstage to show pods, deployments, and other resources for Fleet-managed applications.
 
 Behavior defaults
 - Description: from GitRepo annotation `description`; if `fetchFleetYaml` and `backstage.description` are present, the latter overrides.
 - Owner: from `backstage.owner`; otherwise derived from repo URL (`group:default/<owner>`); fallback `group:default/default`.
-- TechDocs: `backstage.io/techdocs-ref` auto `dir:.` (disable via `autoTechdocsRef: false`).
+- TechDocs: `backstage.io/techdocs-ref` auto `url:<repo>/-/tree/<branch>` when repo/branch known, otherwise `dir:.` (disable via `autoTechdocsRef: false`). `backstage.io/techdocs-entity` is set on Component/Resource to the parent System.
 - Kubernetes annotations: `kubernetes-id` comes from targets/targetCustomizations clusterName/name (otherwise Fleet cluster name); namespace — `defaultNamespace/namespace` from `fleet.yaml` or GitRepo namespace; selector — `helm.releaseName` or GitRepo name.
 - Relations: System spec.dependsOn derived from fleet.yaml dependsOn; Component spec.system points to parent System; Component spec.dependsOn includes BundleDeployment Resources; BundleDeployment spec.dependsOn points to the Bundle Component; Component/Resource carry `backstage.io/techdocs-entity` pointing to the parent System for shared TechDocs.
 
