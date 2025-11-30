@@ -204,13 +204,29 @@ export class FleetEntityProvider implements EntityProvider {
         return;
       }
       const data = (await res.json()) as {
-        data?: Array<{ id?: string; name?: string }>;
+        data?: Array<{
+          id?: string;
+          name?: string;
+          labels?: Record<string, string>;
+          annotations?: Record<string, string>;
+        }>;
       };
       const entries = data.data ?? [];
       this.clusterNameMap = new Map(
         entries
           .filter((c) => c.id)
-          .map((c) => [c.id as string, c.name ?? (c.id as string)]),
+          .map((c) => {
+            const isHarvester =
+              c.labels?.["provider.cattle.io"] === "harvester";
+            const harvesterDisplay =
+              c.annotations?.[
+                "provisioning.cattle.io/management-cluster-display-name"
+              ];
+            const friendly = isHarvester
+              ? (harvesterDisplay ?? c.name ?? (c.id as string))
+              : (c.name ?? (c.id as string));
+            return [c.id as string, friendly];
+          }),
       );
       this.logger.debug(
         `Loaded ${this.clusterNameMap.size} cluster names from Rancher`,
