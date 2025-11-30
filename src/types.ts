@@ -393,6 +393,8 @@ export interface FleetYamlApiDefinition {
 export interface FleetYamlBackstage {
   /** Component type: 'service' (default), 'website', 'library', etc. */
   type?: string;
+  /** Component lifecycle: 'production' (default), 'experimental', 'deprecated' */
+  lifecycle?: string;
   description?: string;
   owner?: string;
   tags?: string[];
