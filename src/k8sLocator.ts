@@ -196,8 +196,21 @@ export class FleetK8sLocator {
     return data.data ?? [];
   }
 
-  private async fetchBundleDeployments(): Promise<any[]> {
-    const deployments: any[] = [];
+  private async fetchBundleDeployments(): Promise<
+    Array<{
+      metadata?: { namespace?: string; labels?: Record<string, string> };
+      status?: {
+        resources?: Array<{
+          kind?: string;
+          apiVersion?: string;
+        }>;
+      };
+    }>
+  > {
+    const deployments: Array<{
+      metadata?: { namespace?: string; labels?: Record<string, string> };
+      status?: { resources?: Array<{ kind?: string; apiVersion?: string }> };
+    }> = [];
     for (const ns of this.fleetNamespaces) {
       const url = `${this.rancherUrl}/k8s/clusters/local/apis/fleet.cattle.io/v1alpha1/namespaces/${ns}/bundledeployments?limit=500`;
       this.logger.debug(
@@ -219,14 +232,24 @@ export class FleetK8sLocator {
         continue;
       }
 
-      const data = (await res.json()) as { items?: any[] };
+      const data = (await res.json()) as {
+        items?: Array<{
+          metadata?: { namespace?: string; labels?: Record<string, string> };
+          status?: {
+            resources?: Array<{ kind?: string; apiVersion?: string }>;
+          };
+        }>;
+      };
       deployments.push(...(data.items ?? []));
     }
     return deployments;
   }
 
   private buildCustomResourcesByCluster(
-    bundleDeployments: any[],
+    bundleDeployments: Array<{
+      metadata?: { namespace?: string; labels?: Record<string, string> };
+      status?: { resources?: Array<{ kind?: string; apiVersion?: string }> };
+    }>,
   ): Map<string, CustomResourceMatcher[]> {
     const map = new Map<string, CustomResourceMatcher[]>();
 
@@ -238,7 +261,9 @@ export class FleetK8sLocator {
         bd?.metadata?.labels?.["fleet.cattle.io/cluster-name"] ?? clusterName;
       if (!clusterName && !clusterId) continue;
 
-      const resources = bd?.status?.resources ?? [];
+      const resources =
+        bd?.status?.resources ??
+        ([] as Array<{ kind?: string; apiVersion?: string }>);
       for (const r of resources) {
         const apiVersion = r?.apiVersion as string | undefined;
         const kind = r?.kind as string | undefined;
