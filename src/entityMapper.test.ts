@@ -348,7 +348,7 @@ describe("mapGitRepoToSystem", () => {
       "fleet-default",
     );
     expect(annotations["backstage.io/kubernetes-label-selector"]).toBe(
-      "objectset.rio.cattle.io/hash=hash-abc",
+      "app.kubernetes.io/name=my-app",
     );
   });
 
