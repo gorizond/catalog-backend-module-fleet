@@ -207,6 +207,7 @@ export class FleetEntityProvider implements EntityProvider {
         data?: Array<{
           id?: string;
           name?: string;
+          displayName?: string;
           labels?: Record<string, string>;
           annotations?: Record<string, string>;
         }>;
@@ -222,9 +223,13 @@ export class FleetEntityProvider implements EntityProvider {
               c.annotations?.[
                 "provisioning.cattle.io/management-cluster-display-name"
               ];
+            const displayName =
+              c.displayName ??
+              c.annotations?.["field.cattle.io/displayName"] ??
+              c.name;
             const friendly = isHarvester
-              ? (harvesterDisplay ?? c.name ?? (c.id as string))
-              : (c.name ?? (c.id as string));
+              ? (harvesterDisplay ?? displayName ?? (c.id as string))
+              : (displayName ?? (c.id as string));
             return [c.id as string, friendly];
           }),
       );
