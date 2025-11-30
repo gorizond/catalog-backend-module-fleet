@@ -32,6 +32,9 @@
  * const backend = createBackend();
  * backend.add(import('@backstage/plugin-catalog-backend'));
  * backend.add(import('@gorizond/catalog-backend-module-fleet'));
+ * // For kubernetes cluster discovery:
+ * backend.add(import('@backstage/plugin-kubernetes-backend'));
+ * backend.add(import('@gorizond/catalog-backend-module-fleet/kubernetes'));
  * backend.start();
  * ```
  *
@@ -65,6 +68,9 @@
 
 // Main module export
 export { catalogModuleFleet, default } from "./module";
+
+// Kubernetes cluster supplier module
+export { kubernetesModuleFleetClusterSupplier } from "./kubernetesModule";
 
 // Provider class for advanced usage
 export { FleetEntityProvider } from "./provider";

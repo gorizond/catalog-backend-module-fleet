@@ -15,7 +15,6 @@ import {
 import { catalogProcessingExtensionPoint } from "@backstage/plugin-catalog-node/alpha";
 import { FleetEntityProvider } from "./provider";
 import { FleetK8sLocator } from "./k8sLocator";
-import { ConfigReader } from "@backstage/config";
 
 /**
  * Catalog backend module that provides Fleet entities.
@@ -94,8 +93,6 @@ export const catalogModuleFleet = createBackendModule({
         config: coreServices.rootConfig,
         logger: coreServices.logger,
         scheduler: coreServices.scheduler,
-        // Optional dependency on kubernetes plugin config loader
-        // In new backend system, the kube backend exposes a config refiner; here we just log clusters.
       },
       async init({ catalog, config, logger, scheduler }) {
         const providers = FleetEntityProvider.fromConfig(config, { logger });
@@ -131,45 +128,17 @@ export const catalogModuleFleet = createBackendModule({
           );
         }
 
-        // Discover and inject Kubernetes clusters automatically
+        // Log discovered Kubernetes clusters (for informational purposes)
+        // NOTE: The kubernetes backend module (fleetK8sClusterSupplier) handles actual cluster injection
         if (k8sLocator) {
           try {
             const clusterMethods = await k8sLocator.asClusterLocatorMethods();
             const clusters = clusterMethods.flatMap((m) => m.clusters);
-            const hasServiceLocator = config.has(
-              "kubernetes.serviceLocatorMethod",
-            );
 
             logger.info(
               `FleetK8sLocator discovered ${clusters.length} Kubernetes clusters`,
             );
             logger.debug(`Clusters: ${clusters.map((c) => c.name).join(", ")}`);
-
-            // Inject clusters into kubernetes backend config dynamically
-            const k8sConfig = {
-              kubernetes: {
-                clusterLocatorMethods: clusterMethods,
-                ...(hasServiceLocator
-                  ? {}
-                  : { serviceLocatorMethod: { type: "multiTenant" } }),
-              },
-            };
-
-            // Merge with existing config
-            /* eslint-disable @typescript-eslint/no-explicit-any */
-            const mergedConfig = ConfigReader.fromConfigs(
-              // config here is provided by the Backstage backend runtime; cast for merge
-              [config as any, new ConfigReader(k8sConfig) as any] as any,
-            );
-            /* eslint-enable @typescript-eslint/no-explicit-any */
-
-            // Replace config reference for dynamic injection
-            Object.setPrototypeOf(config, Object.getPrototypeOf(mergedConfig));
-            Object.assign(config, mergedConfig);
-
-            logger.info(
-              `Injected ${clusters.length} Rancher clusters into kubernetes.clusterLocatorMethods`,
-            );
           } catch (error) {
             logger.warn(`FleetK8sLocator failed: ${error}`);
           }

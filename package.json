@@ -1,6 +1,6 @@
 {
   "name": "@gorizond/catalog-backend-module-fleet",
-  "version": "0.1.15",
+  "version": "0.1.16",
   "description": "Backstage catalog backend module for Rancher Fleet GitOps entities",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -15,6 +15,10 @@
     ".": {
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
+    },
+    "./kubernetes": {
+      "types": "./dist/kubernetesModule.d.ts",
+      "default": "./dist/kubernetesModule.js"
     },
     "./package.json": "./package.json"
   },
@@ -59,6 +63,7 @@
     "@backstage/catalog-model": "^1.7.2",
     "@backstage/config": "^1.3.1",
     "@backstage/plugin-catalog-node": "^1.15.0",
+    "@backstage/plugin-kubernetes-node": "^0.3.6",
     "@types/jest": "^29.5.14",
     "@types/luxon": "^3.4.2",
     "@types/node": "^20.17.10",
@@ -73,7 +78,8 @@
     "@backstage/backend-plugin-api": "^1.0.0",
     "@backstage/catalog-model": "^1.0.0",
     "@backstage/config": "^1.0.0",
-    "@backstage/plugin-catalog-node": "^1.0.0"
+    "@backstage/plugin-catalog-node": "^1.0.0",
+    "@backstage/plugin-kubernetes-node": "^0.3.0"
   },
   "peerDependenciesMeta": {
     "@backstage/backend-plugin-api": {
@@ -87,6 +93,9 @@
     },
     "@backstage/plugin-catalog-node": {
       "optional": false
+    },
+    "@backstage/plugin-kubernetes-node": {
+      "optional": true
     }
   }
 }
