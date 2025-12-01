@@ -323,8 +323,9 @@ export class FleetEntityProvider implements EntityProvider {
       if (set.has("fleet-default")) return "fleet-default";
       return Array.from(set.values())[0];
     }
-    const fallback = "fleet-default";
+    const fallback = clusterId === "local" ? "fleet-local" : "fleet-default";
     this.clusterWorkspaces.set(clusterId, new Set([fallback]));
+    this.clusterPrimaryWorkspace.set(clusterId, fallback);
     return fallback;
   }
 
