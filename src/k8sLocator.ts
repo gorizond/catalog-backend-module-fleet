@@ -11,6 +11,8 @@ import { Config } from "@backstage/config";
 import { LoggerService } from "@backstage/backend-plugin-api";
 import { CustomResourceMatcher } from "@backstage/plugin-kubernetes-common";
 import fetch from "node-fetch";
+import https from "https";
+import type { V1Node } from "@kubernetes/client-node";
 
 type ClusterLocatorEntry = {
   name: string;
@@ -28,8 +30,86 @@ type RancherCluster = {
   links?: Record<string, string>;
   annotations?: Record<string, string>;
   labels?: Record<string, string>;
+  driver?: string;
   caCert?: string;
   clusterCIDR?: string;
+  state?: string;
+  transitioning?: string;
+  transitioningMessage?: string;
+  conditions?: Array<{
+    type?: string;
+    status?: string;
+    message?: string;
+    reason?: string;
+    lastUpdateTime?: string;
+    lastTransitionTime?: string;
+  }>;
+  rancherKubernetesEngineConfig?: {
+    kubernetesVersion?: string;
+    services?: {
+      etcd?: {
+        backupConfig?: Record<string, unknown>;
+      };
+    };
+  };
+};
+
+type HarvesterVirtualMachine = {
+  apiVersion?: string;
+  kind?: string;
+  metadata?: {
+    name?: string;
+    namespace?: string;
+    labels?: Record<string, string>;
+  };
+  spec?: {
+    runStrategy?: string;
+    template?: {
+      spec?: {
+        domain?: {
+          cpu?: { cores?: number };
+          resources?: {
+            requests?: Record<string, string>;
+            limits?: Record<string, string>;
+          };
+        };
+      };
+    };
+  };
+  status?: {
+    printableStatus?: string;
+    ready?: boolean;
+    conditions?: Array<Record<string, unknown>>;
+  };
+};
+
+type RancherNode = {
+  id?: string;
+  nodeName?: string;
+  hostname?: string;
+  name?: string;
+};
+
+type MachineDeployment = {
+  apiVersion?: string;
+  kind?: string;
+  metadata?: {
+    name?: string;
+    namespace?: string;
+    labels?: Record<string, string>;
+  };
+  spec?: {
+    replicas?: number;
+    selector?: { matchLabels?: Record<string, string> };
+    template?: {
+      metadata?: { labels?: Record<string, string> };
+    };
+  };
+  status?: {
+    availableReplicas?: number;
+    readyReplicas?: number;
+    updatedReplicas?: number;
+  };
 };
 
 export interface FleetK8sLocatorOptions {
@@ -153,6 +233,217 @@ export class FleetK8sLocator {
   }
 
   /**
+   * Returns lightweight cluster summaries (id + friendly name) without CRD scanning.
+   */
+  async listClusterSummaries(): Promise<Array<{ id: string; name?: string }>> {
+    const clusters = await this.fetchRancherClusters();
+    return clusters
+      .filter((c) => (this.includeLocal ? true : c.id !== "local"))
+      .map((c) => ({ id: c.id, name: c.name }));
+  }
+
+  async listRancherClusterDetails(): Promise<RancherCluster[]> {
+    const clusters = await this.fetchRancherClusters();
+    return clusters.filter((c) => (this.includeLocal ? true : c.id !== "local"));
+  }
+
+  /**
+   * Return Rancher nodes grouped by cluster for use in catalog sync.
+   */
+  async listClusterNodes(): Promise<
+    Array<{
+      clusterId: string;
+      clusterName?: string;
+      nodes: RancherNode[];
+    }>
+  > {
+    const clusters = await this.fetchRancherClusters();
+    const agent = this.buildAgent();
+
+    const results: Array<{
+      clusterId: string;
+      clusterName?: string;
+      nodes: RancherNode[];
+    }> = [];
+
+    for (const cluster of clusters) {
+      if (!cluster.id) continue;
+      if (cluster.id === "local" && !this.includeLocal) continue;
+      try {
+        const nodes = await this.fetchClusterNodes(cluster.id, agent);
+        results.push({
+          clusterId: cluster.id,
+          clusterName: cluster.name,
+          nodes,
+        });
+      } catch (e) {
+        this.logger.debug(
+          `FleetK8sLocator failed to fetch nodes for cluster ${cluster.id}: ${e}`,
+        );
+      }
+    }
+
+    return results;
+  }
+
+  /**
+   * Return detailed Kubernetes nodes grouped by cluster (full Node objects).
+   */
+  async listClusterNodesDetailed(): Promise<
+    Array<{ clusterId: string; clusterName?: string; nodes: V1Node[] }>
+  > {
+    const clusters = await this.fetchRancherClusters();
+    const results: Array<{
+      clusterId: string;
+      clusterName?: string;
+      nodes: V1Node[];
+    }> = [];
+
+    for (const cluster of clusters) {
+      if (!cluster.id) continue;
+      if (cluster.id === "local" && !this.includeLocal) continue;
+      const agent = this.buildAgent(cluster.caCert);
+      const base = `${this.rancherUrl}/k8s/clusters/${cluster.id}`;
+      try {
+        const data = await this.fetchJson<{ items?: V1Node[] }>(
+          `${base}/api/v1/nodes?limit=500`,
+          agent,
+        );
+        results.push({
+          clusterId: cluster.id,
+          clusterName: cluster.name,
+          nodes: data?.items ?? [],
+        });
+      } catch (e) {
+        this.logger.debug(
+          `FleetK8sLocator failed to fetch detailed nodes for cluster ${cluster.id}: ${e}`,
+        );
+      }
+    }
+
+    return results;
+  }
+
+  /**
+   * Return MachineDeployments grouped by cluster (if Cluster API is installed).
+   */
+  async listClusterMachineDeployments(): Promise<
+    Array<{ clusterId: string; clusterName?: string; items: MachineDeployment[] }>
+  > {
+    const clusters = await this.fetchRancherClusters();
+    const results: Array<{
+      clusterId: string;
+      clusterName?: string;
+      items: MachineDeployment[];
+    }> = [];
+
+    for (const cluster of clusters) {
+      if (!cluster.id) continue;
+      if (cluster.id === "local" && !this.includeLocal) continue;
+      const agent = this.buildAgent(cluster.caCert);
+      const base = `${this.rancherUrl}/k8s/clusters/${cluster.id}`;
+      try {
+        const data = await this.fetchJson<{ items?: MachineDeployment[] }>(
+          `${base}/apis/cluster.x-k8s.io/v1beta1/machinedeployments?limit=500`,
+          agent,
+        );
+        if (data?.items?.length) {
+          results.push({
+            clusterId: cluster.id,
+            clusterName: cluster.name,
+            items: data.items,
+          });
+        }
+      } catch (e) {
+        this.logger.debug(
+          `FleetK8sLocator failed to fetch MachineDeployments for cluster ${cluster.id}: ${e}`,
+        );
+      }
+    }
+
+    return results;
+  }
+
+  async listClusterVersions(): Promise<
+    Array<{ clusterId: string; clusterName?: string; version?: string }>
+  > {
+    const clusters = await this.fetchRancherClusters();
+    const results: Array<{
+      clusterId: string;
+      clusterName?: string;
+      version?: string;
+    }> = [];
+
+    for (const cluster of clusters) {
+      if (!cluster.id) continue;
+      if (cluster.id === "local" && !this.includeLocal) continue;
+      const agent = this.buildAgent(cluster.caCert);
+      const base = `${this.rancherUrl}/k8s/clusters/${cluster.id}`;
+      try {
+        const data = await this.fetchJson<{ gitVersion?: string }>(
+          `${base}/version`,
+          agent,
+        );
+        results.push({
+          clusterId: cluster.id,
+          clusterName: cluster.name,
+          version: data?.gitVersion,
+        });
+      } catch (e) {
+        this.logger.debug(
+          `FleetK8sLocator failed to fetch version for cluster ${cluster.id}: ${e}`,
+        );
+      }
+    }
+
+    return results;
+  }
+
+  async listHarvesterVirtualMachines(): Promise<
+    Array<{
+      clusterId: string;
+      clusterName?: string;
+      items: HarvesterVirtualMachine[];
+    }>
+  > {
+    const clusters = await this.fetchRancherClusters();
+    const harvesterClusters = clusters.filter(
+      (c) => c.labels?.["provider.cattle.io"] === "harvester",
+    );
+    const results: Array<{
+      clusterId: string;
+      clusterName?: string;
+      items: HarvesterVirtualMachine[];
+    }> = [];
+
+    for (const cluster of harvesterClusters) {
+      if (!cluster.id) continue;
+      if (cluster.id === "local" && !this.includeLocal) continue;
+      const agent = this.buildAgent(cluster.caCert);
+      const base = `${this.rancherUrl}/k8s/clusters/${cluster.id}`;
+      try {
+        const data = await this.fetchJson<{ items?: HarvesterVirtualMachine[] }>(
+          `${base}/apis/kubevirt.io/v1/virtualmachines?limit=500`,
+          agent,
+        );
+        if (data?.items?.length) {
+          results.push({
+            clusterId: cluster.id,
+            clusterName: cluster.name,
+            items: data.items,
+          });
+        }
+      } catch (e) {
+        this.logger.debug(
+          `FleetK8sLocator failed to fetch Harvester VMs for cluster ${cluster.id}: ${e}`,
+        );
+      }
+    }
+
+    return results;
+  }
+
+  /**
    * Convert to Backstage kubernetes.clusterLocatorMethods (type: config).
    */
   async asClusterLocatorMethods(): Promise<
@@ -179,6 +470,10 @@ export class FleetK8sLocator {
         Authorization: `Bearer ${this.rancherToken}`,
         Accept: "application/json",
       },
+      agent:
+        this.skipTLSVerify === true
+          ? new https.Agent({ rejectUnauthorized: false })
+          : undefined,
       // TLS verify controlled by global agent (set NODE_TLS_REJECT_UNAUTHORIZED if needed)
     });
 
@@ -194,6 +489,69 @@ export class FleetK8sLocator {
       `FleetK8sLocator received ${data.data?.length ?? 0} clusters`,
     );
     return data.data ?? [];
+  }
+
+  private async fetchClusterNodes(
+    clusterId: string,
+    agent?: https.Agent,
+  ): Promise<RancherNode[]> {
+    const url = `${this.rancherUrl}/v3/clusters/${clusterId}/nodes`;
+    const res = await fetch(url, {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${this.rancherToken}`,
+        Accept: "application/json",
+      },
+      agent,
+    });
+
+    if (!res.ok) {
+      const text = await res.text();
+      this.logger.debug(
+        `FleetK8sLocator failed to fetch nodes for ${clusterId}: ${res.status} ${res.statusText} ${text}`,
+      );
+      return [];
+    }
+
+    const data = (await res.json()) as { data?: RancherNode[] };
+    return data.data ?? [];
+  }
+
+  private buildAgent(caData?: string): https.Agent | undefined {
+    const agentOptions: https.AgentOptions = {
+      rejectUnauthorized: this.skipTLSVerify ? false : true,
+    };
+
+    if (caData) {
+      try {
+        agentOptions.ca = Buffer.from(caData, "base64");
+      } catch {
+        agentOptions.ca = caData;
+      }
+    }
+
+    return new https.Agent(agentOptions);
+  }
+
+  private async fetchJson<T>(
+    url: string,
+    agent?: https.Agent,
+  ): Promise<T | undefined> {
+    const res = await fetch(url, {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${this.rancherToken}`,
+        Accept: "application/json",
+      },
+      agent,
+    });
+
+    if (!res.ok) {
+      const text = await res.text();
+      throw new Error(`${res.status} ${res.statusText} ${text}`);
+    }
+
+    return (await res.json()) as T;
   }
 
   private async fetchBundleDeployments(): Promise<

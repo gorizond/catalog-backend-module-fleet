@@ -213,6 +213,19 @@ export function mapClusterToResource(
   clusterName: string | undefined,
   namespace: string,
   context: MapperContext,
+  details?: {
+    version?: string;
+    nodeCount?: number;
+    readyNodeCount?: number;
+    machineDeploymentCount?: number;
+    vmCount?: number;
+    state?: string;
+    transitioning?: string;
+    transitioningMessage?: string;
+    conditions?: Array<Record<string, unknown>>;
+    etcdBackupConfig?: Record<string, unknown>;
+    driver?: string;
+  },
 ): Entity {
   const safeName = toBackstageName(clusterName ?? clusterId);
   const entityNamespace = toEntityNamespace(namespace);
@@ -223,9 +236,58 @@ export function mapClusterToResource(
     [ANNOTATION_KUBERNETES_ID]: clusterId,
   };
 
+  if (details?.version) {
+    annotations[`${FLEET_ANNOTATION_PREFIX}/kubernetes-version`] =
+      details.version;
+  }
+  if (details?.nodeCount !== undefined) {
+    annotations[`${FLEET_ANNOTATION_PREFIX}/node-count`] = String(
+      details.nodeCount,
+    );
+  }
+  if (details?.readyNodeCount !== undefined) {
+    annotations[`${FLEET_ANNOTATION_PREFIX}/node-ready-count`] = String(
+      details.readyNodeCount,
+    );
+  }
+  if (details?.machineDeploymentCount !== undefined) {
+    annotations[`${FLEET_ANNOTATION_PREFIX}/machine-deployments`] = String(
+      details.machineDeploymentCount,
+    );
+  }
+  if (details?.vmCount !== undefined) {
+    annotations[`${FLEET_ANNOTATION_PREFIX}/virtual-machines`] = String(
+      details.vmCount,
+    );
+  }
+  if (details?.state) {
+    annotations[`${FLEET_ANNOTATION_PREFIX}/cluster-state`] = details.state;
+  }
+  if (details?.transitioning) {
+    annotations[`${FLEET_ANNOTATION_PREFIX}/cluster-transitioning`] =
+      details.transitioning;
+  }
+  if (details?.transitioningMessage) {
+    annotations[`${FLEET_ANNOTATION_PREFIX}/cluster-transitioning-message`] =
+      details.transitioningMessage;
+  }
+  if (details?.conditions) {
+    annotations[`${FLEET_ANNOTATION_PREFIX}/cluster-conditions`] = JSON.stringify(
+      details.conditions,
+    );
+  }
+  if (details?.etcdBackupConfig) {
+    annotations[`${FLEET_ANNOTATION_PREFIX}/cluster-etcd-backup-config`] =
+      JSON.stringify(details.etcdBackupConfig);
+  }
+  if (details?.driver) {
+    annotations[`${FLEET_ANNOTATION_PREFIX}/cluster-driver`] = details.driver;
+  }
+
+  const versionSuffix = details?.version ? ` (v${details.version})` : "";
   const description = `Downstream Kubernetes cluster: ${
     clusterName ?? clusterId
-  }`;
+  }${versionSuffix}`;
 
   return {
     apiVersion: "backstage.io/v1alpha1",
@@ -255,6 +317,18 @@ export function mapNodeToResource(params: {
   clusterName?: string;
   workspaceNamespace: string;
   context: MapperContext;
+  details?: {
+    labels?: Record<string, string>;
+    capacity?: Record<string, string>;
+    allocatable?: Record<string, string>;
+    taints?: Array<Record<string, unknown>>;
+    addresses?: Array<Record<string, unknown>>;
+    providerId?: string;
+    kubeletVersion?: string;
+    osImage?: string;
+    containerRuntime?: string;
+    architecture?: string;
+  };
 }): Entity {
   const {
     nodeId,
@@ -263,6 +337,7 @@ export function mapNodeToResource(params: {
     clusterName,
     workspaceNamespace,
     context,
+    details,
   } = params;
   const safeName = toStableBackstageName(nodeName ?? nodeId, 63);
   const entityNamespace = toEntityNamespace(workspaceNamespace);
@@ -274,6 +349,51 @@ export function mapNodeToResource(params: {
     [`${FLEET_ANNOTATION_PREFIX}/node-id`]: nodeId,
     [ANNOTATION_KUBERNETES_ID]: clusterId,
   };
+
+  if (details?.labels) {
+    annotations[`${FLEET_ANNOTATION_PREFIX}/node-labels`] = JSON.stringify(
+      details.labels,
+    );
+  }
+  if (details?.taints) {
+    annotations[`${FLEET_ANNOTATION_PREFIX}/node-taints`] = JSON.stringify(
+      details.taints,
+    );
+  }
+  if (details?.capacity) {
+    annotations[`${FLEET_ANNOTATION_PREFIX}/node-capacity`] = JSON.stringify(
+      details.capacity,
+    );
+  }
+  if (details?.allocatable) {
+    annotations[`${FLEET_ANNOTATION_PREFIX}/node-allocatable`] = JSON.stringify(
+      details.allocatable,
+    );
+  }
+  if (details?.addresses) {
+    annotations[`${FLEET_ANNOTATION_PREFIX}/node-addresses`] = JSON.stringify(
+      details.addresses,
+    );
+  }
+  if (details?.providerId) {
+    annotations[`${FLEET_ANNOTATION_PREFIX}/node-provider-id`] =
+      details.providerId;
+  }
+  if (details?.kubeletVersion) {
+    annotations[`${FLEET_ANNOTATION_PREFIX}/node-kubelet-version`] =
+      details.kubeletVersion;
+  }
+  if (details?.osImage) {
+    annotations[`${FLEET_ANNOTATION_PREFIX}/node-os-image`] = details.osImage;
+  }
+  if (details?.containerRuntime) {
+    annotations[`${FLEET_ANNOTATION_PREFIX}/node-cri`] =
+      details.containerRuntime;
+  }
+  if (details?.architecture) {
+    annotations[`${FLEET_ANNOTATION_PREFIX}/node-arch`] =
+      details.architecture;
+  }
 
   const dependsOn = [
     stringifyEntityRef({
@@ -303,6 +423,196 @@ export function mapNodeToResource(params: {
       type: "kubernetes-node",
       owner: "platform-team",
       dependsOn,
+    },
+  };
+}
+
+// ============================================================================
+// MachineDeployment (Cluster API) → Resource (type: kubernetes-machinedeployment)
+// ============================================================================
+
+export function mapMachineDeploymentToResource(params: {
+  mdName: string;
+  clusterId: string;
+  clusterName?: string;
+  workspaceNamespace: string;
+  context: MapperContext;
+  details?: {
+    namespace?: string;
+    labels?: Record<string, string>;
+    selector?: Record<string, string>;
+    replicas?: number;
+    availableReplicas?: number;
+    readyReplicas?: number;
+    updatedReplicas?: number;
+  };
+}): Entity {
+  const {
+    mdName,
+    clusterId,
+    clusterName,
+    workspaceNamespace,
+    context,
+    details,
+  } = params;
+
+  const safeName = toStableBackstageName(mdName, 63);
+  const entityNamespace = toEntityNamespace(workspaceNamespace);
+  const clusterRef = stringifyEntityRef({
+    kind: "Resource",
+    namespace: entityNamespace,
+    name: toBackstageName(clusterName ?? clusterId),
+  });
+
+  const annotations: Record<string, string> = {
+    [ANNOTATION_LOCATION]: context.locationKey,
+    [ANNOTATION_ORIGIN_LOCATION]: context.locationKey,
+    [ANNOTATION_FLEET_CLUSTER]: clusterId,
+    [`${FLEET_ANNOTATION_PREFIX}/machine-deployment`]: mdName,
+    [ANNOTATION_KUBERNETES_ID]: clusterId,
+  };
+
+  if (details?.namespace) {
+    annotations[`${FLEET_ANNOTATION_PREFIX}/machine-deployment-namespace`] =
+      details.namespace;
+  }
+  if (details?.labels) {
+    annotations[`${FLEET_ANNOTATION_PREFIX}/machine-deployment-labels`] =
+      JSON.stringify(details.labels);
+  }
+  if (details?.selector) {
+    annotations[`${FLEET_ANNOTATION_PREFIX}/machine-deployment-selector`] =
+      JSON.stringify(details.selector);
+  }
+  if (details?.replicas !== undefined) {
+    annotations[`${FLEET_ANNOTATION_PREFIX}/machine-deployment-replicas`] =
+      String(details.replicas);
+  }
+  if (details?.availableReplicas !== undefined) {
+    annotations[`${FLEET_ANNOTATION_PREFIX}/machine-deployment-available`] =
+      String(details.availableReplicas);
+  }
+  if (details?.readyReplicas !== undefined) {
+    annotations[`${FLEET_ANNOTATION_PREFIX}/machine-deployment-ready`] = String(
+      details.readyReplicas,
+    );
+  }
+  if (details?.updatedReplicas !== undefined) {
+    annotations[`${FLEET_ANNOTATION_PREFIX}/machine-deployment-updated`] =
+      String(details.updatedReplicas);
+  }
+
+  return {
+    apiVersion: "backstage.io/v1alpha1",
+    kind: "Resource",
+    metadata: {
+      name: safeName,
+      namespace: entityNamespace,
+      description: `MachineDeployment ${mdName} in cluster ${
+        clusterName ?? clusterId
+      }`,
+      annotations,
+      tags: ["fleet", "cluster-api", "kubernetes-machinedeployment"],
+    },
+    spec: {
+      type: "kubernetes-machinedeployment",
+      owner: "platform-team",
+      dependsOn: [clusterRef],
+    },
+  };
+}
+
+// ============================================================================
+// Harvester VirtualMachine (KubeVirt) → Resource (type: kubernetes-virtual-machine)
+// ============================================================================
+
+export function mapVirtualMachineToResource(params: {
+  vmName: string;
+  clusterId: string;
+  clusterName?: string;
+  workspaceNamespace: string;
+  context: MapperContext;
+  details?: {
+    namespace?: string;
+    labels?: Record<string, string>;
+    requests?: Record<string, string>;
+    limits?: Record<string, string>;
+    runStrategy?: string;
+    printableStatus?: string;
+    ready?: boolean;
+  };
+}): Entity {
+  const {
+    vmName,
+    clusterId,
+    clusterName,
+    workspaceNamespace,
+    context,
+    details,
+  } = params;
+
+  const safeName = toStableBackstageName(vmName, 63);
+  const entityNamespace = toEntityNamespace(workspaceNamespace);
+  const clusterRef = stringifyEntityRef({
+    kind: "Resource",
+    namespace: entityNamespace,
+    name: toBackstageName(clusterName ?? clusterId),
+  });
+
+  const annotations: Record<string, string> = {
+    [ANNOTATION_LOCATION]: context.locationKey,
+    [ANNOTATION_ORIGIN_LOCATION]: context.locationKey,
+    [ANNOTATION_FLEET_CLUSTER]: clusterId,
+    [`${FLEET_ANNOTATION_PREFIX}/virtual-machine`]: vmName,
+    [ANNOTATION_KUBERNETES_ID]: clusterId,
+  };
+
+  if (details?.namespace) {
+    annotations[`${FLEET_ANNOTATION_PREFIX}/vm-namespace`] = details.namespace;
+  }
+  if (details?.labels) {
+    annotations[`${FLEET_ANNOTATION_PREFIX}/vm-labels`] = JSON.stringify(
+      details.labels,
+    );
+  }
+  if (details?.requests) {
+    annotations[`${FLEET_ANNOTATION_PREFIX}/vm-requests`] = JSON.stringify(
+      details.requests,
+    );
+  }
+  if (details?.limits) {
+    annotations[`${FLEET_ANNOTATION_PREFIX}/vm-limits`] = JSON.stringify(
+      details.limits,
+    );
+  }
+  if (details?.runStrategy) {
+    annotations[`${FLEET_ANNOTATION_PREFIX}/vm-run-strategy`] =
+      details.runStrategy;
+  }
+  if (details?.printableStatus) {
+    annotations[`${FLEET_ANNOTATION_PREFIX}/vm-status`] =
+      details.printableStatus;
+  }
+  if (details?.ready !== undefined) {
+    annotations[`${FLEET_ANNOTATION_PREFIX}/vm-ready`] = String(details.ready);
+  }
+
+  return {
+    apiVersion: "backstage.io/v1alpha1",
+    kind: "Resource",
+    metadata: {
+      name: safeName,
+      namespace: entityNamespace,
+      description: `Harvester VM ${vmName} in cluster ${
+        clusterName ?? clusterId
+      }`,
+      annotations,
+      tags: ["fleet", "harvester", "kubevirt-vm"],
+    },
+    spec: {
+      type: "kubernetes-virtual-machine",
+      owner: "platform-team",
+      dependsOn: [clusterRef],
     },
   };
 }

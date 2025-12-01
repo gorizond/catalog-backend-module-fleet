@@ -93,6 +93,8 @@ export {
   mapGitRepoToSystem,
   mapBundleToComponent,
   mapBundleDeploymentToResource,
+  mapMachineDeploymentToResource,
+  mapVirtualMachineToResource,
   mapApiDefinitionToApi,
   toBackstageName,
   toEntityNamespace,

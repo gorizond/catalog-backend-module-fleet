@@ -51,9 +51,12 @@ import {
   flattenBatch,
   mapClusterToResource,
   mapNodeToResource,
+  mapMachineDeploymentToResource,
+  mapVirtualMachineToResource,
   extractWorkspaceNamespaceFromBundleDeploymentNamespace,
 } from "./entityMapper";
 import { Entity } from "@backstage/catalog-model";
+import type { FleetK8sLocator } from "./k8sLocator";
 
 function deriveFriendlyClusterName(clusterId: string): string | undefined {
   // Fleet appends a random suffix to downstream cluster IDs (e.g., staging-000-edd3151847f4)
@@ -67,6 +70,7 @@ function deriveFriendlyClusterName(clusterId: string): string | undefined {
 
 export interface FleetProviderFactoryOptions {
   logger: LoggerService;
+  k8sLocator?: FleetK8sLocator;
 }
 
 export interface FleetProviderOptions {
@@ -75,6 +79,7 @@ export interface FleetProviderOptions {
   schedule: SchedulerServiceTaskScheduleDefinition;
   logger: LoggerService;
   concurrency?: number;
+  k8sLocator?: FleetK8sLocator;
 }
 
 // ============================================================================
@@ -87,8 +92,25 @@ export class FleetEntityProvider implements EntityProvider {
   private readonly schedule: SchedulerServiceTaskScheduleDefinition;
   private readonly locationKey: string;
   private readonly concurrency: number;
+  private readonly k8sLocator?: FleetK8sLocator;
   private connection?: EntityProviderConnection;
   private clusterNameMap?: Map<string, string>;
+  private clusterStats?: Map<
+    string,
+    {
+      version?: string;
+      nodeCount?: number;
+      readyNodeCount?: number;
+      machineDeploymentCount?: number;
+      vmCount?: number;
+      state?: string;
+      transitioning?: string;
+      transitioningMessage?: string;
+      conditions?: Array<Record<string, unknown>>;
+      etcdBackupConfig?: Record<string, unknown>;
+      driver?: string;
+    }
+  >;
 
   private addDiscoveredClustersToBatch(batch: EntityBatch): void {
     if (!this.clusterNameMap || this.clusterNameMap.size === 0) {
@@ -101,20 +123,22 @@ export class FleetEntityProvider implements EntityProvider {
       locationKey: this.locationKey,
       autoTechdocsRef: cluster.autoTechdocsRef,
     };
-    const workspaceNamespace = "fleet-default";
+    const workspaceNamespace = "default";
 
     for (const [clusterId, clusterName] of this.clusterNameMap.entries()) {
+      const stats = this.clusterStats?.get(clusterId);
       const entity = mapClusterToResource(
         clusterId,
         clusterName,
         workspaceNamespace,
         context,
+        stats,
       );
       batch.resources.push(entity);
     }
   }
 
-  private async addNodesForClusters(batch: EntityBatch): Promise<void> {
+  private async addNodesViaRancher(batch: EntityBatch): Promise<void> {
     if (!this.clusterNameMap || this.clusterNameMap.size === 0) return;
     const cfg = this.clusters[0];
     if (!cfg?.url || !cfg?.token) return;
@@ -160,7 +184,7 @@ export class FleetEntityProvider implements EntityProvider {
           locationKey: this.locationKey,
           autoTechdocsRef: cluster.autoTechdocsRef,
         };
-        const workspaceNamespace = "fleet-default";
+        const workspaceNamespace = "default";
 
         for (const node of nodes) {
           const nodeId = node.id ?? node.nodeName ?? node.name;
@@ -176,6 +200,10 @@ export class FleetEntityProvider implements EntityProvider {
           });
           batch.resources.push(entity);
         }
+
+        const stats = this.clusterStats?.get(clusterId) ?? {};
+        stats.nodeCount = nodes.length;
+        this.clusterStats?.set(clusterId, stats);
       } catch (e) {
         this.logger.debug(`Failed to load nodes for ${clusterId}: ${e}`);
       }
@@ -242,6 +270,7 @@ export class FleetEntityProvider implements EntityProvider {
       schedule,
       logger: options.logger,
       concurrency,
+      k8sLocator: options.k8sLocator,
     });
   }
 
@@ -251,6 +280,7 @@ export class FleetEntityProvider implements EntityProvider {
     this.schedule = options.schedule;
     this.locationKey = `fleet:${options.id}`;
     this.concurrency = options.concurrency ?? 3;
+    this.k8sLocator = options.k8sLocator;
   }
 
   getProviderName(): string {
@@ -275,6 +305,42 @@ export class FleetEntityProvider implements EntityProvider {
   }
 
   private async populateClusterNameMap(): Promise<void> {
+    this.clusterStats = new Map();
+    if (this.k8sLocator) {
+      try {
+        const clusters = await this.k8sLocator.listRancherClusterDetails();
+        if (clusters?.length) {
+          this.clusterNameMap = new Map(
+            clusters
+              .filter((c) => c.id)
+              .map((c) => [c.id, c.name ?? c.id]),
+          );
+
+          for (const c of clusters) {
+            if (!c.id) continue;
+            const stats = this.clusterStats?.get(c.id) ?? {};
+            stats.state = c.state;
+            stats.transitioning = c.transitioning;
+            stats.transitioningMessage = c.transitioningMessage;
+            stats.conditions = c.conditions;
+            stats.etcdBackupConfig =
+              c.rancherKubernetesEngineConfig?.services?.etcd?.backupConfig;
+            stats.version =
+              stats.version ?? c.rancherKubernetesEngineConfig?.kubernetesVersion;
+            stats.driver = c.driver ?? c.labels?.["provider.cattle.io"];
+            this.clusterStats?.set(c.id, stats);
+          }
+
+          this.logger.debug(
+            `Loaded ${this.clusterNameMap.size} cluster names from FleetK8sLocator`,
+          );
+          return;
+        }
+      } catch (e) {
+        this.logger.warn(`Failed to load cluster names via FleetK8sLocator: ${e}`);
+      }
+    }
+
     try {
       const cfg = this.clusters[0];
       if (!cfg?.url || !cfg?.token) return;
@@ -303,6 +369,7 @@ export class FleetEntityProvider implements EntityProvider {
           displayName?: string;
           labels?: Record<string, string>;
           annotations?: Record<string, string>;
+          driver?: string;
         }>;
       };
       const entries = data.data ?? [];
@@ -326,11 +393,179 @@ export class FleetEntityProvider implements EntityProvider {
             return [c.id as string, friendly];
           }),
       );
+      for (const c of entries) {
+        if (!c.id) continue;
+        const stats = this.clusterStats?.get(c.id) ?? {};
+        stats.driver = c.driver ?? c.labels?.["provider.cattle.io"];
+        this.clusterStats?.set(c.id, stats);
+      }
       this.logger.debug(
         `Loaded ${this.clusterNameMap.size} cluster names from Rancher`,
       );
     } catch (e) {
       this.logger.warn(`Failed to load Rancher cluster names: ${e}`);
+    }
+  }
+
+  private async collectClusterTopology(batch: EntityBatch): Promise<void> {
+    if (!this.k8sLocator) {
+      await this.addNodesViaRancher(batch);
+      return;
+    }
+
+    const cluster = this.clusters[0];
+    if (!cluster) return;
+
+    const context: MapperContext = {
+      cluster,
+      locationKey: this.locationKey,
+      autoTechdocsRef: cluster.autoTechdocsRef,
+    };
+    const workspaceNamespace = "default";
+
+    try {
+      const [nodeGroups, mdGroups, versions, vmGroups] = await Promise.all([
+        this.k8sLocator.listClusterNodesDetailed(),
+        this.k8sLocator.listClusterMachineDeployments(),
+        this.k8sLocator.listClusterVersions(),
+        this.k8sLocator.listHarvesterVirtualMachines(),
+      ]);
+
+      const versionMap = new Map<string, string | undefined>(
+        versions.map((v) => [v.clusterId, v.version]),
+      );
+
+      for (const group of nodeGroups) {
+        const clusterId = group.clusterId;
+        const clusterName =
+          this.clusterNameMap?.get(clusterId) ?? group.clusterName ?? clusterId;
+        const nodes = group.nodes ?? [];
+
+        let readyCount = 0;
+        for (const node of nodes) {
+          const nodeId =
+            node.metadata?.uid ?? node.metadata?.name ?? node.spec?.providerID;
+          const nodeName = node.metadata?.name ?? nodeId;
+          if (!nodeId || !nodeName) continue;
+          const addresses = node.status?.addresses as
+            | Array<Record<string, unknown>>
+            | undefined;
+          const taints = node.spec?.taints as
+            | Array<Record<string, unknown>>
+            | undefined;
+          const isReady = (node.status?.conditions ?? []).some(
+            (c) => c?.type === "Ready" && c?.status === "True",
+          );
+          if (isReady) readyCount += 1;
+
+          const entity = mapNodeToResource({
+            nodeId,
+            nodeName,
+            clusterId,
+            clusterName,
+            workspaceNamespace,
+            context,
+            details: {
+              labels: node.metadata?.labels ?? undefined,
+              capacity: node.status?.capacity ?? undefined,
+              allocatable: node.status?.allocatable ?? undefined,
+              taints,
+              addresses,
+              providerId: node.spec?.providerID,
+              kubeletVersion: node.status?.nodeInfo?.kubeletVersion,
+              osImage: node.status?.nodeInfo?.osImage,
+              containerRuntime:
+                node.status?.nodeInfo?.containerRuntimeVersion,
+              architecture: node.status?.nodeInfo?.architecture,
+            },
+          });
+          batch.resources.push(entity);
+        }
+
+        const stats = this.clusterStats?.get(clusterId) ?? {};
+        stats.nodeCount = nodes.length;
+        stats.readyNodeCount = readyCount;
+        stats.version = versionMap.get(clusterId) ?? stats.version;
+        this.clusterStats?.set(clusterId, stats);
+      }
+
+      for (const group of mdGroups) {
+        const clusterId = group.clusterId;
+        const clusterName =
+          this.clusterNameMap?.get(clusterId) ?? group.clusterName ?? clusterId;
+        const items = group.items ?? [];
+        for (const md of items) {
+          const mdName = md.metadata?.name;
+          if (!mdName) continue;
+          const selector = md.spec?.selector?.matchLabels ?? {};
+          const labels = md.metadata?.labels ?? md.spec?.template?.metadata?.labels;
+          const entity = mapMachineDeploymentToResource({
+            mdName,
+            clusterId,
+            clusterName,
+            workspaceNamespace,
+            context,
+            details: {
+              namespace: md.metadata?.namespace,
+              labels: labels && Object.keys(labels).length ? labels : undefined,
+              selector: Object.keys(selector).length ? selector : undefined,
+              replicas: md.spec?.replicas,
+              availableReplicas: md.status?.availableReplicas,
+              readyReplicas: md.status?.readyReplicas,
+              updatedReplicas: md.status?.updatedReplicas,
+            },
+          });
+          batch.resources.push(entity);
+        }
+
+        const stats = this.clusterStats?.get(clusterId) ?? {};
+        stats.machineDeploymentCount = items.length;
+        stats.version = stats.version ?? versionMap.get(clusterId);
+        this.clusterStats?.set(clusterId, stats);
+      }
+
+      for (const group of vmGroups) {
+        const clusterId = group.clusterId;
+        const clusterName =
+          this.clusterNameMap?.get(clusterId) ?? group.clusterName ?? clusterId;
+        const items = group.items ?? [];
+        for (const vm of items) {
+          const vmName = vm.metadata?.name;
+          if (!vmName) continue;
+          const requests = vm.spec?.template?.spec?.domain?.resources?.requests;
+          const limits = vm.spec?.template?.spec?.domain?.resources?.limits;
+          const entity = mapVirtualMachineToResource({
+            vmName,
+            clusterId,
+            clusterName,
+            workspaceNamespace,
+            context,
+            details: {
+              namespace: vm.metadata?.namespace,
+              labels: vm.metadata?.labels,
+              requests: requests && Object.keys(requests).length ? requests : undefined,
+              limits: limits && Object.keys(limits).length ? limits : undefined,
+              runStrategy: vm.spec?.runStrategy,
+              printableStatus: vm.status?.printableStatus,
+              ready: vm.status?.ready,
+            },
+          });
+          batch.resources.push(entity);
+        }
+
+        const stats = this.clusterStats?.get(clusterId) ?? {};
+        stats.vmCount = items.length;
+        this.clusterStats?.set(clusterId, stats);
+      }
+
+      for (const v of versions) {
+        const stats = this.clusterStats?.get(v.clusterId) ?? {};
+        stats.version = v.version ?? stats.version;
+        this.clusterStats?.set(v.clusterId, stats);
+      }
+    } catch (e) {
+      this.logger.debug(`Failed to collect cluster topology via k8s locator: ${e}`);
+      await this.addNodesViaRancher(batch);
     }
   }
 
@@ -355,9 +590,8 @@ export class FleetEntityProvider implements EntityProvider {
 
     try {
       await this.populateClusterNameMap();
-
+      await this.collectClusterTopology(batch);
       this.addDiscoveredClustersToBatch(batch);
-      await this.addNodesForClusters(batch);
 
       await Promise.all(
         this.clusters.map((cluster) =>
@@ -591,11 +825,13 @@ export class FleetEntityProvider implements EntityProvider {
               : undefined) ??
             derivedClusterId ??
             clusterId;
+          const clusterDetails = this.clusterStats?.get(clusterId);
           const clusterResource = mapClusterToResource(
             clusterId,
             clusterFriendlyName,
             workspaceNamespace,
             context,
+            clusterDetails,
           );
           batch.resources.push(clusterResource);
 

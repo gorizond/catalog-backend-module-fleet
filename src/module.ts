@@ -95,8 +95,11 @@ export const catalogModuleFleet = createBackendModule({
         scheduler: coreServices.scheduler,
       },
       async init({ catalog, config, logger, scheduler }) {
-        const providers = FleetEntityProvider.fromConfig(config, { logger });
         const k8sLocator = FleetK8sLocator.fromConfig({ config, logger });
+        const providers = FleetEntityProvider.fromConfig(config, {
+          logger,
+          k8sLocator,
+        });
 
         if (providers.length === 0) {
           logger.info(
