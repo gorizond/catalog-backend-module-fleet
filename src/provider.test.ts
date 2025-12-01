@@ -580,8 +580,8 @@ describe("FleetEntityProvider", () => {
     );
     const vm = emitted.find((e) => e?.metadata?.tags?.includes("kubevirt-vm"));
 
-    expect(vm?.metadata?.name).toBe("builder-vm");
-    const expectedVmRef = "resource:fleet-harv/builder-vm";
+    expect(vm?.metadata?.name).toBe("builder-vm-vm");
+    const expectedVmRef = "resource:fleet-harv/builder-vm-vm";
     expect(
       node?.metadata?.annotations?.["fleet.cattle.io/harvester-vm-ref"],
     ).toBe(expectedVmRef);

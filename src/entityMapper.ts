@@ -535,6 +535,11 @@ export function mapMachineDeploymentToResource(params: {
 
 export function mapVirtualMachineToResource(params: {
   vmName: string;
+  /**
+   * Backstage-safe entity name. If not provided, vmName will be sanitized.
+   * Allows differentiating VM entities from nodes with the same name.
+   */
+  entityName?: string;
   clusterId: string;
   clusterName?: string;
   workspaceNamespace: string;
@@ -551,6 +556,7 @@ export function mapVirtualMachineToResource(params: {
 }): Entity {
   const {
     vmName,
+    entityName,
     clusterId,
     clusterName,
     workspaceNamespace,
@@ -558,7 +564,7 @@ export function mapVirtualMachineToResource(params: {
     details,
   } = params;
 
-  const safeName = toStableBackstageName(vmName, 63);
+  const safeName = entityName ?? toStableBackstageName(vmName, 63);
   const entityNamespace = toEntityNamespace(workspaceNamespace);
   const clusterRef = stringifyEntityRef({
     kind: "Resource",

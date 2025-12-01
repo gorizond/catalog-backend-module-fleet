@@ -472,28 +472,55 @@ export class FleetEntityProvider implements EntityProvider {
         versions.map((v) => [v.clusterId, v.version]),
       );
 
-      const vmRefIndex = new Map<string, Map<string, string>>();
+      // Index VMs by UID and name across all Harvester clusters to link nodes via providerID
+      const vmRefIndex = new Map<string, string>();
       for (const group of vmGroups) {
         const vmWorkspace = this.getPrimaryWorkspace(group.clusterId);
         const entityNamespace = toEntityNamespace(vmWorkspace);
-        const clusterVmIndex =
-          vmRefIndex.get(group.clusterId) ?? new Map<string, string>();
-        vmRefIndex.set(group.clusterId, clusterVmIndex);
+        const vmClusterName =
+          this.clusterNameMap?.get(group.clusterId) ??
+          group.clusterName ??
+          group.clusterId;
+
         for (const vm of group.items ?? []) {
           const vmName = vm.metadata?.name;
           const vmUid = vm.metadata?.uid;
           const vmNamespace = vm.metadata?.namespace ?? "default";
           if (!vmName) continue;
+          const entityName = toStableBackstageName(`${vmName}-vm`, 63);
           const key = `name:${vmNamespace}/${vmName}`;
           const vmEntityRef = stringifyEntityRef({
             kind: "Resource",
             namespace: entityNamespace,
-            name: toStableBackstageName(vmName, 63),
+            name: entityName,
           });
-          clusterVmIndex.set(key, vmEntityRef);
+          vmRefIndex.set(key, vmEntityRef);
           if (vmUid) {
-            clusterVmIndex.set(`uid:${vmUid}`, vmEntityRef);
+            vmRefIndex.set(`uid:${vmUid}`, vmEntityRef);
           }
+
+          const requests =
+            vm.spec?.template?.spec?.domain?.resources?.requests;
+          const limits = vm.spec?.template?.spec?.domain?.resources?.limits;
+          const entity = mapVirtualMachineToResource({
+            vmName,
+            entityName,
+            clusterId: group.clusterId,
+            clusterName: vmClusterName,
+            workspaceNamespace: vmWorkspace,
+            context,
+            details: {
+              namespace: vm.metadata?.namespace,
+              labels: vm.metadata?.labels,
+              requests:
+                requests && Object.keys(requests).length ? requests : undefined,
+              limits: limits && Object.keys(limits).length ? limits : undefined,
+              runStrategy: vm.spec?.runStrategy,
+              printableStatus: vm.status?.printableStatus,
+              ready: vm.status?.ready,
+            },
+          });
+          batch.resources.push(entity);
         }
       }
 
@@ -523,15 +550,15 @@ export class FleetEntityProvider implements EntityProvider {
 
           let harvesterVmRef: string | undefined;
           const providerId = node.spec?.providerID;
-          const vmIndex = vmRefIndex.get(clusterId);
           const match = providerId?.match(/^harvester:\/\/(.+)$/);
-          if (match && vmIndex) {
+          if (match) {
             const suffix = match[1];
             if (suffix.includes("/")) {
-              harvesterVmRef = vmIndex.get(`name:${suffix}`);
+              harvesterVmRef = vmRefIndex.get(`name:${suffix}`);
             } else {
               harvesterVmRef =
-                vmIndex.get(`uid:${suffix}`) ?? vmIndex.get(`name:${suffix}`);
+                vmRefIndex.get(`uid:${suffix}`) ??
+                vmRefIndex.get(`name:${suffix}`);
             }
           }
 
@@ -604,39 +631,10 @@ export class FleetEntityProvider implements EntityProvider {
       }
 
       for (const group of vmGroups) {
-        const clusterId = group.clusterId;
-        const clusterName =
-          this.clusterNameMap?.get(clusterId) ?? group.clusterName ?? clusterId;
-        const workspaceNamespace = this.getPrimaryWorkspace(clusterId);
+        const stats = this.clusterStats?.get(group.clusterId) ?? {};
         const items = group.items ?? [];
-        for (const vm of items) {
-          const vmName = vm.metadata?.name;
-          if (!vmName) continue;
-          const requests = vm.spec?.template?.spec?.domain?.resources?.requests;
-          const limits = vm.spec?.template?.spec?.domain?.resources?.limits;
-          const entity = mapVirtualMachineToResource({
-            vmName,
-            clusterId,
-            clusterName,
-            workspaceNamespace,
-            context,
-            details: {
-              namespace: vm.metadata?.namespace,
-              labels: vm.metadata?.labels,
-              requests:
-                requests && Object.keys(requests).length ? requests : undefined,
-              limits: limits && Object.keys(limits).length ? limits : undefined,
-              runStrategy: vm.spec?.runStrategy,
-              printableStatus: vm.status?.printableStatus,
-              ready: vm.status?.ready,
-            },
-          });
-          batch.resources.push(entity);
-        }
-
-        const stats = this.clusterStats?.get(clusterId) ?? {};
         stats.vmCount = items.length;
-        this.clusterStats?.set(clusterId, stats);
+        this.clusterStats?.set(group.clusterId, stats);
       }
 
       for (const v of versions) {
