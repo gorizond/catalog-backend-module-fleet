@@ -27,6 +27,7 @@ type ClusterLocatorEntry = {
 type RancherCluster = {
   id: string;
   name?: string;
+  namespace?: string;
   links?: Record<string, string>;
   annotations?: Record<string, string>;
   labels?: Record<string, string>;
