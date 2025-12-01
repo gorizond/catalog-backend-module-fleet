@@ -32,6 +32,7 @@ type RancherCluster = {
   annotations?: Record<string, string>;
   labels?: Record<string, string>;
   driver?: string;
+  provider?: string;
   caCert?: string;
   clusterCIDR?: string;
   state?: string;
