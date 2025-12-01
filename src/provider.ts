@@ -54,6 +54,7 @@ import {
   mapMachineDeploymentToResource,
   mapVirtualMachineToResource,
   extractWorkspaceNamespaceFromBundleDeploymentNamespace,
+  toEntityNamespace,
   toStableBackstageName,
 } from "./entityMapper";
 import { Entity } from "@backstage/catalog-model";
@@ -338,9 +339,7 @@ export class FleetEntityProvider implements EntityProvider {
         const clusters = await this.k8sLocator.listRancherClusterDetails();
         if (clusters?.length) {
           this.clusterNameMap = new Map(
-            clusters
-              .filter((c) => c.id)
-              .map((c) => [c.id, c.name ?? c.id]),
+            clusters.filter((c) => c.id).map((c) => [c.id, c.name ?? c.id]),
           );
 
           for (const c of clusters) {
@@ -353,7 +352,8 @@ export class FleetEntityProvider implements EntityProvider {
             stats.etcdBackupConfig =
               c.rancherKubernetesEngineConfig?.services?.etcd?.backupConfig;
             stats.version =
-              stats.version ?? c.rancherKubernetesEngineConfig?.kubernetesVersion;
+              stats.version ??
+              c.rancherKubernetesEngineConfig?.kubernetesVersion;
             stats.driver = c.driver ?? c.labels?.["provider.cattle.io"];
             this.clusterStats?.set(c.id, stats);
             if (c.namespace) {
@@ -367,7 +367,9 @@ export class FleetEntityProvider implements EntityProvider {
           return;
         }
       } catch (e) {
-        this.logger.warn(`Failed to load cluster names via FleetK8sLocator: ${e}`);
+        this.logger.warn(
+          `Failed to load cluster names via FleetK8sLocator: ${e}`,
+        );
       }
     }
 
@@ -470,20 +472,28 @@ export class FleetEntityProvider implements EntityProvider {
         versions.map((v) => [v.clusterId, v.version]),
       );
 
-      const vmRefIndex = new Map<string, string>();
+      const vmRefIndex = new Map<string, Map<string, string>>();
       for (const group of vmGroups) {
         const vmWorkspace = this.getPrimaryWorkspace(group.clusterId);
+        const entityNamespace = toEntityNamespace(vmWorkspace);
+        const clusterVmIndex =
+          vmRefIndex.get(group.clusterId) ?? new Map<string, string>();
+        vmRefIndex.set(group.clusterId, clusterVmIndex);
         for (const vm of group.items ?? []) {
           const vmName = vm.metadata?.name;
+          const vmUid = vm.metadata?.uid;
           const vmNamespace = vm.metadata?.namespace ?? "default";
           if (!vmName) continue;
-          const key = `${vmNamespace}/${vmName}`;
+          const key = `name:${vmNamespace}/${vmName}`;
           const vmEntityRef = stringifyEntityRef({
             kind: "Resource",
-            namespace: vmWorkspace,
+            namespace: entityNamespace,
             name: toStableBackstageName(vmName, 63),
           });
-          vmRefIndex.set(key, vmEntityRef);
+          clusterVmIndex.set(key, vmEntityRef);
+          if (vmUid) {
+            clusterVmIndex.set(`uid:${vmUid}`, vmEntityRef);
+          }
         }
       }
 
@@ -513,10 +523,16 @@ export class FleetEntityProvider implements EntityProvider {
 
           let harvesterVmRef: string | undefined;
           const providerId = node.spec?.providerID;
-          const match = providerId?.match(/^harvester:\/\/(.+)\/(.+)$/);
-          if (match) {
-            const vmKey = `${match[1]}/${match[2]}`;
-            harvesterVmRef = vmRefIndex.get(vmKey);
+          const vmIndex = vmRefIndex.get(clusterId);
+          const match = providerId?.match(/^harvester:\/\/(.+)$/);
+          if (match && vmIndex) {
+            const suffix = match[1];
+            if (suffix.includes("/")) {
+              harvesterVmRef = vmIndex.get(`name:${suffix}`);
+            } else {
+              harvesterVmRef =
+                vmIndex.get(`uid:${suffix}`) ?? vmIndex.get(`name:${suffix}`);
+            }
           }
 
           const entity = mapNodeToResource({
@@ -535,8 +551,7 @@ export class FleetEntityProvider implements EntityProvider {
               providerId: node.spec?.providerID,
               kubeletVersion: node.status?.nodeInfo?.kubeletVersion,
               osImage: node.status?.nodeInfo?.osImage,
-              containerRuntime:
-                node.status?.nodeInfo?.containerRuntimeVersion,
+              containerRuntime: node.status?.nodeInfo?.containerRuntimeVersion,
               architecture: node.status?.nodeInfo?.architecture,
               harvesterVmRef,
             },
@@ -561,7 +576,8 @@ export class FleetEntityProvider implements EntityProvider {
           const mdName = md.metadata?.name;
           if (!mdName) continue;
           const selector = md.spec?.selector?.matchLabels ?? {};
-          const labels = md.metadata?.labels ?? md.spec?.template?.metadata?.labels;
+          const labels =
+            md.metadata?.labels ?? md.spec?.template?.metadata?.labels;
           const entity = mapMachineDeploymentToResource({
             mdName,
             clusterId,
@@ -607,7 +623,8 @@ export class FleetEntityProvider implements EntityProvider {
             details: {
               namespace: vm.metadata?.namespace,
               labels: vm.metadata?.labels,
-              requests: requests && Object.keys(requests).length ? requests : undefined,
+              requests:
+                requests && Object.keys(requests).length ? requests : undefined,
               limits: limits && Object.keys(limits).length ? limits : undefined,
               runStrategy: vm.spec?.runStrategy,
               printableStatus: vm.status?.printableStatus,
@@ -628,7 +645,9 @@ export class FleetEntityProvider implements EntityProvider {
         this.clusterStats?.set(v.clusterId, stats);
       }
     } catch (e) {
-      this.logger.debug(`Failed to collect cluster topology via k8s locator: ${e}`);
+      this.logger.debug(
+        `Failed to collect cluster topology via k8s locator: ${e}`,
+      );
       await this.addNodesViaRancher(batch);
     }
   }

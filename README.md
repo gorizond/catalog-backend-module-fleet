@@ -235,6 +235,7 @@ Additional topology enrichment
 - Nodes: full Kubernetes Node objects via Rancher proxy (`/k8s/clusters/{id}/api/v1/nodes`) — labels, taints, capacity/allocatable, providerID, kubelet/CRI versions, OS/arch.
 - MachineDeployments (Cluster API) via `/k8s/clusters/{id}/apis/cluster.x-k8s.io/v1beta1/machinedeployments` — replicas/ready/labels/selectors.
 - Harvester VMs via `/k8s/clusters/{id}/apis/kubevirt.io/v1/virtualmachines` for clusters with `provider.cattle.io=harvester` — resources, status, labels.
+- Node ↔ Harvester VM linking via `providerID`: current Harvester format `harvester://<vm-uid>` (preferred) with fallback to legacy `harvester://<namespace>/<name>`, matched within the same cluster.
 - Cluster annotations: driver, Kubernetes version, node/MD/VM counts, Rancher state/transition/conditions, etcd backup config.
 
 This enables the Kubernetes tab in Backstage to show pods, deployments, and other resources for Fleet-managed applications.

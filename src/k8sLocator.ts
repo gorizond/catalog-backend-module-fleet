@@ -61,6 +61,7 @@ type HarvesterVirtualMachine = {
   metadata?: {
     name?: string;
     namespace?: string;
+    uid?: string;
     labels?: Record<string, string>;
   };
   spec?: {
@@ -245,7 +246,9 @@ export class FleetK8sLocator {
 
   async listRancherClusterDetails(): Promise<RancherCluster[]> {
     const clusters = await this.fetchRancherClusters();
-    return clusters.filter((c) => (this.includeLocal ? true : c.id !== "local"));
+    return clusters.filter((c) =>
+      this.includeLocal ? true : c.id !== "local",
+    );
   }
 
   /**
@@ -329,7 +332,11 @@ export class FleetK8sLocator {
    * Return MachineDeployments grouped by cluster (if Cluster API is installed).
    */
   async listClusterMachineDeployments(): Promise<
-    Array<{ clusterId: string; clusterName?: string; items: MachineDeployment[] }>
+    Array<{
+      clusterId: string;
+      clusterName?: string;
+      items: MachineDeployment[];
+    }>
   > {
     const clusters = await this.fetchRancherClusters();
     const results: Array<{
@@ -423,10 +430,9 @@ export class FleetK8sLocator {
       const agent = this.buildAgent(cluster.caCert);
       const base = `${this.rancherUrl}/k8s/clusters/${cluster.id}`;
       try {
-        const data = await this.fetchJson<{ items?: HarvesterVirtualMachine[] }>(
-          `${base}/apis/kubevirt.io/v1/virtualmachines?limit=500`,
-          agent,
-        );
+        const data = await this.fetchJson<{
+          items?: HarvesterVirtualMachine[];
+        }>(`${base}/apis/kubevirt.io/v1/virtualmachines?limit=500`, agent);
         if (data?.items?.length) {
           results.push({
             clusterId: cluster.id,

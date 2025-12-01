@@ -516,6 +516,77 @@ describe("FleetEntityProvider", () => {
     expect(clusters).toHaveLength(1);
     expect(clusters[0].metadata?.namespace).toBe("fleet-default");
   });
+
+  it("links nodes to Harvester VMs using UID-based providerID", async () => {
+    const emitted: any[] = [];
+    const vmUid = "416c6851-15b9-4005-b7bc-ba2193b7f366";
+
+    const provider = new FleetEntityProvider(
+      createOptions({
+        k8sLocator: {
+          listRancherClusterDetails: async () => [
+            {
+              id: "c-1",
+              name: "harvester-1",
+              namespace: "fleet-harv",
+              labels: { "provider.cattle.io": "harvester" },
+            } as any,
+          ],
+          listClusterNodesDetailed: async () => [
+            {
+              clusterId: "c-1",
+              clusterName: "harvester-1",
+              nodes: [
+                {
+                  metadata: { uid: "node-uid", name: "node-1" },
+                  spec: { providerID: `harvester://${vmUid}` },
+                  status: { conditions: [] },
+                },
+              ],
+            } as any,
+          ],
+          listClusterMachineDeployments: async () => [],
+          listClusterVersions: async () => [],
+          listHarvesterVirtualMachines: async () => [
+            {
+              clusterId: "c-1",
+              clusterName: "harvester-1",
+              items: [
+                {
+                  metadata: {
+                    name: "builder-vm",
+                    namespace: "builder",
+                    uid: vmUid,
+                  },
+                },
+              ],
+            } as any,
+          ],
+        } as any,
+      }),
+    );
+
+    await provider.connect({
+      applyMutation: async (m: any) => {
+        const batch = m.entities.map((e: any) => e.entity);
+        emitted.push(...batch);
+      },
+    } as any);
+
+    await provider.run();
+
+    const node = emitted.find((e) =>
+      e?.metadata?.tags?.includes("kubernetes-node"),
+    );
+    const vm = emitted.find((e) => e?.metadata?.tags?.includes("kubevirt-vm"));
+
+    expect(vm?.metadata?.name).toBe("builder-vm");
+    const expectedVmRef = "resource:fleet-harv/builder-vm";
+    expect(
+      node?.metadata?.annotations?.["fleet.cattle.io/harvester-vm-ref"],
+    ).toBe(expectedVmRef);
+    expect(node?.spec?.dependsOn).toContain(expectedVmRef);
+  });
 });
 
 // ============================================================================
