@@ -124,21 +124,17 @@ export class FleetEntityProvider implements EntityProvider {
       locationKey: this.locationKey,
       autoTechdocsRef: cluster.autoTechdocsRef,
     };
-    const workspaceNamespace = "fleet-default";
-
     for (const [clusterId, clusterName] of this.clusterNameMap.entries()) {
       const stats = this.clusterStats?.get(clusterId);
-      const workspaces = this.getWorkspacesForCluster(clusterId);
-      for (const ws of workspaces) {
-        const entity = mapClusterToResource(
-          clusterId,
-          clusterName,
-          ws,
-          context,
-          stats,
-        );
-        batch.resources.push(entity);
-      }
+      const workspaceNamespace = this.getPrimaryWorkspace(clusterId);
+      const entity = mapClusterToResource(
+        clusterId,
+        clusterName,
+        workspaceNamespace,
+        context,
+        stats,
+      );
+      batch.resources.push(entity);
     }
   }
 
@@ -188,23 +184,21 @@ export class FleetEntityProvider implements EntityProvider {
           locationKey: this.locationKey,
           autoTechdocsRef: cluster.autoTechdocsRef,
         };
-        const workspaces = this.getWorkspacesForCluster(clusterId);
+        const workspaceNamespace = this.getPrimaryWorkspace(clusterId);
 
         for (const node of nodes) {
           const nodeId = node.id ?? node.nodeName ?? node.name;
           if (!nodeId) continue;
           const nodeName = node.nodeName ?? node.hostname ?? node.name;
-          for (const workspaceNamespace of workspaces) {
-            const entity = mapNodeToResource({
-              nodeId,
-              nodeName,
-              clusterId,
-              clusterName,
-              workspaceNamespace,
-              context,
-            });
-            batch.resources.push(entity);
-          }
+          const entity = mapNodeToResource({
+            nodeId,
+            nodeName,
+            clusterId,
+            clusterName,
+            workspaceNamespace,
+            context,
+          });
+          batch.resources.push(entity);
         }
 
         const stats = this.clusterStats?.get(clusterId) ?? {};
@@ -317,11 +311,14 @@ export class FleetEntityProvider implements EntityProvider {
     this.clusterWorkspaces.set(clusterId, set);
   }
 
-  private getWorkspacesForCluster(clusterId: string): Set<string> {
+  private getPrimaryWorkspace(clusterId: string): string {
     const set = this.clusterWorkspaces.get(clusterId);
-    if (set && set.size > 0) return set;
-    const fallback = new Set<string>(["fleet-default", "fleet-local"]);
-    this.clusterWorkspaces.set(clusterId, fallback);
+    if (set && set.size > 0) {
+      if (set.has("fleet-default")) return "fleet-default";
+      return Array.from(set.values())[0];
+    }
+    const fallback = "fleet-default";
+    this.clusterWorkspaces.set(clusterId, new Set([fallback]));
     return fallback;
   }
 
@@ -460,7 +457,7 @@ export class FleetEntityProvider implements EntityProvider {
         const clusterId = group.clusterId;
         const clusterName =
           this.clusterNameMap?.get(clusterId) ?? group.clusterName ?? clusterId;
-        const workspaces = this.getWorkspacesForCluster(clusterId);
+        const workspaceNamespace = this.getPrimaryWorkspace(clusterId);
         const nodes = group.nodes ?? [];
 
         let readyCount = 0;
@@ -480,30 +477,28 @@ export class FleetEntityProvider implements EntityProvider {
           );
           if (isReady) readyCount += 1;
 
-          for (const workspaceNamespace of workspaces) {
-            const entity = mapNodeToResource({
-              nodeId,
-              nodeName,
-              clusterId,
-              clusterName,
-              workspaceNamespace,
-              context,
-              details: {
-                labels: node.metadata?.labels ?? undefined,
-                capacity: node.status?.capacity ?? undefined,
-                allocatable: node.status?.allocatable ?? undefined,
-                taints,
-                addresses,
-                providerId: node.spec?.providerID,
-                kubeletVersion: node.status?.nodeInfo?.kubeletVersion,
-                osImage: node.status?.nodeInfo?.osImage,
-                containerRuntime:
-                  node.status?.nodeInfo?.containerRuntimeVersion,
-                architecture: node.status?.nodeInfo?.architecture,
-              },
-            });
-            batch.resources.push(entity);
-          }
+          const entity = mapNodeToResource({
+            nodeId,
+            nodeName,
+            clusterId,
+            clusterName,
+            workspaceNamespace,
+            context,
+            details: {
+              labels: node.metadata?.labels ?? undefined,
+              capacity: node.status?.capacity ?? undefined,
+              allocatable: node.status?.allocatable ?? undefined,
+              taints,
+              addresses,
+              providerId: node.spec?.providerID,
+              kubeletVersion: node.status?.nodeInfo?.kubeletVersion,
+              osImage: node.status?.nodeInfo?.osImage,
+              containerRuntime:
+                node.status?.nodeInfo?.containerRuntimeVersion,
+              architecture: node.status?.nodeInfo?.architecture,
+            },
+          });
+          batch.resources.push(entity);
         }
 
         const stats = this.clusterStats?.get(clusterId) ?? {};
@@ -517,32 +512,30 @@ export class FleetEntityProvider implements EntityProvider {
         const clusterId = group.clusterId;
         const clusterName =
           this.clusterNameMap?.get(clusterId) ?? group.clusterName ?? clusterId;
-        const workspaces = this.getWorkspacesForCluster(clusterId);
+        const workspaceNamespace = this.getPrimaryWorkspace(clusterId);
         const items = group.items ?? [];
         for (const md of items) {
           const mdName = md.metadata?.name;
           if (!mdName) continue;
           const selector = md.spec?.selector?.matchLabels ?? {};
           const labels = md.metadata?.labels ?? md.spec?.template?.metadata?.labels;
-          for (const workspaceNamespace of workspaces) {
-            const entity = mapMachineDeploymentToResource({
-              mdName,
-              clusterId,
-              clusterName,
-              workspaceNamespace,
-              context,
-              details: {
-                namespace: md.metadata?.namespace,
-                labels: labels && Object.keys(labels).length ? labels : undefined,
-                selector: Object.keys(selector).length ? selector : undefined,
-                replicas: md.spec?.replicas,
-                availableReplicas: md.status?.availableReplicas,
-                readyReplicas: md.status?.readyReplicas,
-                updatedReplicas: md.status?.updatedReplicas,
-              },
-            });
-            batch.resources.push(entity);
-          }
+          const entity = mapMachineDeploymentToResource({
+            mdName,
+            clusterId,
+            clusterName,
+            workspaceNamespace,
+            context,
+            details: {
+              namespace: md.metadata?.namespace,
+              labels: labels && Object.keys(labels).length ? labels : undefined,
+              selector: Object.keys(selector).length ? selector : undefined,
+              replicas: md.spec?.replicas,
+              availableReplicas: md.status?.availableReplicas,
+              readyReplicas: md.status?.readyReplicas,
+              updatedReplicas: md.status?.updatedReplicas,
+            },
+          });
+          batch.resources.push(entity);
         }
 
         const stats = this.clusterStats?.get(clusterId) ?? {};
@@ -555,32 +548,30 @@ export class FleetEntityProvider implements EntityProvider {
         const clusterId = group.clusterId;
         const clusterName =
           this.clusterNameMap?.get(clusterId) ?? group.clusterName ?? clusterId;
-        const workspaces = this.getWorkspacesForCluster(clusterId);
+        const workspaceNamespace = this.getPrimaryWorkspace(clusterId);
         const items = group.items ?? [];
         for (const vm of items) {
           const vmName = vm.metadata?.name;
           if (!vmName) continue;
           const requests = vm.spec?.template?.spec?.domain?.resources?.requests;
           const limits = vm.spec?.template?.spec?.domain?.resources?.limits;
-          for (const workspaceNamespace of workspaces) {
-            const entity = mapVirtualMachineToResource({
-              vmName,
-              clusterId,
-              clusterName,
-              workspaceNamespace,
-              context,
-              details: {
-                namespace: vm.metadata?.namespace,
-                labels: vm.metadata?.labels,
-                requests: requests && Object.keys(requests).length ? requests : undefined,
-                limits: limits && Object.keys(limits).length ? limits : undefined,
-                runStrategy: vm.spec?.runStrategy,
-                printableStatus: vm.status?.printableStatus,
-                ready: vm.status?.ready,
-              },
-            });
-            batch.resources.push(entity);
-          }
+          const entity = mapVirtualMachineToResource({
+            vmName,
+            clusterId,
+            clusterName,
+            workspaceNamespace,
+            context,
+            details: {
+              namespace: vm.metadata?.namespace,
+              labels: vm.metadata?.labels,
+              requests: requests && Object.keys(requests).length ? requests : undefined,
+              limits: limits && Object.keys(limits).length ? limits : undefined,
+              runStrategy: vm.spec?.runStrategy,
+              printableStatus: vm.status?.printableStatus,
+              ready: vm.status?.ready,
+            },
+          });
+          batch.resources.push(entity);
         }
 
         const stats = this.clusterStats?.get(clusterId) ?? {};
@@ -841,12 +832,12 @@ export class FleetEntityProvider implements EntityProvider {
           bd.metadata?.namespace ?? "",
         );
         if (clusterId) {
-          const workspaceNamespace =
-            extractWorkspaceNamespaceFromBundleDeploymentNamespace(
-              bd.metadata?.namespace ?? "",
-            ) ?? "default";
-          this.recordWorkspaceNamespace(clusterId, workspaceNamespace);
-          // Cluster entity
+        const workspaceNamespace =
+          extractWorkspaceNamespaceFromBundleDeploymentNamespace(
+            bd.metadata?.namespace ?? "",
+          ) ?? "fleet-default";
+        this.recordWorkspaceNamespace(clusterId, workspaceNamespace);
+        // Cluster entity
           // Try to find friendly name from Rancher clusters if available
           const derivedClusterId = deriveFriendlyClusterName(clusterId);
           const clusterFriendlyName =
