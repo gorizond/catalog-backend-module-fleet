@@ -54,6 +54,7 @@ import {
   mapMachineDeploymentToResource,
   mapVirtualMachineToResource,
   extractWorkspaceNamespaceFromBundleDeploymentNamespace,
+  toStableBackstageName,
 } from "./entityMapper";
 import { Entity } from "@backstage/catalog-model";
 import type { FleetK8sLocator } from "./k8sLocator";
@@ -469,6 +470,23 @@ export class FleetEntityProvider implements EntityProvider {
         versions.map((v) => [v.clusterId, v.version]),
       );
 
+      const vmRefIndex = new Map<string, string>();
+      for (const group of vmGroups) {
+        const vmWorkspace = this.getPrimaryWorkspace(group.clusterId);
+        for (const vm of group.items ?? []) {
+          const vmName = vm.metadata?.name;
+          const vmNamespace = vm.metadata?.namespace ?? "default";
+          if (!vmName) continue;
+          const key = `${vmNamespace}/${vmName}`;
+          const vmEntityRef = stringifyEntityRef({
+            kind: "Resource",
+            namespace: vmWorkspace,
+            name: toStableBackstageName(vmName, 63),
+          });
+          vmRefIndex.set(key, vmEntityRef);
+        }
+      }
+
       for (const group of nodeGroups) {
         const clusterId = group.clusterId;
         const clusterName =
@@ -493,6 +511,14 @@ export class FleetEntityProvider implements EntityProvider {
           );
           if (isReady) readyCount += 1;
 
+          let harvesterVmRef: string | undefined;
+          const providerId = node.spec?.providerID;
+          const match = providerId?.match(/^harvester:\/\/(.+)\/(.+)$/);
+          if (match) {
+            const vmKey = `${match[1]}/${match[2]}`;
+            harvesterVmRef = vmRefIndex.get(vmKey);
+          }
+
           const entity = mapNodeToResource({
             nodeId,
             nodeName,
@@ -512,6 +538,7 @@ export class FleetEntityProvider implements EntityProvider {
               containerRuntime:
                 node.status?.nodeInfo?.containerRuntimeVersion,
               architecture: node.status?.nodeInfo?.architecture,
+              harvesterVmRef,
             },
           });
           batch.resources.push(entity);

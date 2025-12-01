@@ -328,6 +328,7 @@ export function mapNodeToResource(params: {
     osImage?: string;
     containerRuntime?: string;
     architecture?: string;
+    harvesterVmRef?: string;
   };
 }): Entity {
   const {
@@ -349,6 +350,20 @@ export function mapNodeToResource(params: {
     [`${FLEET_ANNOTATION_PREFIX}/node-id`]: nodeId,
     [ANNOTATION_KUBERNETES_ID]: clusterId,
   };
+
+  const dependsOn = [
+    stringifyEntityRef({
+      kind: "Resource",
+      namespace: entityNamespace,
+      name: toBackstageName(clusterName ?? clusterId),
+    }),
+  ];
+
+  if (details?.harvesterVmRef) {
+    annotations[`${FLEET_ANNOTATION_PREFIX}/harvester-vm-ref`] =
+      details.harvesterVmRef;
+    dependsOn.push(details.harvesterVmRef);
+  }
 
   if (details?.labels) {
     annotations[`${FLEET_ANNOTATION_PREFIX}/node-labels`] = JSON.stringify(
@@ -394,14 +409,6 @@ export function mapNodeToResource(params: {
     annotations[`${FLEET_ANNOTATION_PREFIX}/node-arch`] =
       details.architecture;
   }
-
-  const dependsOn = [
-    stringifyEntityRef({
-      kind: "Resource",
-      namespace: entityNamespace,
-      name: toBackstageName(clusterName ?? clusterId),
-    }),
-  ];
 
   return {
     apiVersion: "backstage.io/v1alpha1",
