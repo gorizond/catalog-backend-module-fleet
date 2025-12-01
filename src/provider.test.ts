@@ -1,6 +1,5 @@
 import { ConfigReader } from "@backstage/config";
 import { FleetEntityProvider } from "./provider";
-import { createEmptyBatch } from "./entityMapper";
 
 // ============================================================================
 // Mock Logger
@@ -361,8 +360,6 @@ describe("FleetEntityProvider", () => {
     concurrency: 1,
     k8sLocator: overrides.k8sLocator,
   });
-
-  const connection: any = mockConnection;
 
   beforeEach(() => {
     mockConnection.applyMutation.mockReset();
