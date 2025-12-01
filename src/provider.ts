@@ -95,6 +95,7 @@ export class FleetEntityProvider implements EntityProvider {
   private readonly k8sLocator?: FleetK8sLocator;
   private connection?: EntityProviderConnection;
   private clusterNameMap?: Map<string, string>;
+  private readonly clusterWorkspaces: Map<string, Set<string>> = new Map();
   private clusterStats?: Map<
     string,
     {
@@ -123,18 +124,21 @@ export class FleetEntityProvider implements EntityProvider {
       locationKey: this.locationKey,
       autoTechdocsRef: cluster.autoTechdocsRef,
     };
-    const workspaceNamespace = "default";
+    const workspaceNamespace = "fleet-default";
 
     for (const [clusterId, clusterName] of this.clusterNameMap.entries()) {
       const stats = this.clusterStats?.get(clusterId);
-      const entity = mapClusterToResource(
-        clusterId,
-        clusterName,
-        workspaceNamespace,
-        context,
-        stats,
-      );
-      batch.resources.push(entity);
+      const workspaces = this.getWorkspacesForCluster(clusterId);
+      for (const ws of workspaces) {
+        const entity = mapClusterToResource(
+          clusterId,
+          clusterName,
+          ws,
+          context,
+          stats,
+        );
+        batch.resources.push(entity);
+      }
     }
   }
 
@@ -184,21 +188,23 @@ export class FleetEntityProvider implements EntityProvider {
           locationKey: this.locationKey,
           autoTechdocsRef: cluster.autoTechdocsRef,
         };
-        const workspaceNamespace = "default";
+        const workspaces = this.getWorkspacesForCluster(clusterId);
 
         for (const node of nodes) {
           const nodeId = node.id ?? node.nodeName ?? node.name;
           if (!nodeId) continue;
           const nodeName = node.nodeName ?? node.hostname ?? node.name;
-          const entity = mapNodeToResource({
-            nodeId,
-            nodeName,
-            clusterId,
-            clusterName,
-            workspaceNamespace,
-            context,
-          });
-          batch.resources.push(entity);
+          for (const workspaceNamespace of workspaces) {
+            const entity = mapNodeToResource({
+              nodeId,
+              nodeName,
+              clusterId,
+              clusterName,
+              workspaceNamespace,
+              context,
+            });
+            batch.resources.push(entity);
+          }
         }
 
         const stats = this.clusterStats?.get(clusterId) ?? {};
@@ -304,8 +310,24 @@ export class FleetEntityProvider implements EntityProvider {
     return result;
   }
 
+  private recordWorkspaceNamespace(clusterId: string, workspace: string): void {
+    const trimmed = workspace || "default";
+    const set = this.clusterWorkspaces.get(clusterId) ?? new Set<string>();
+    set.add(trimmed);
+    this.clusterWorkspaces.set(clusterId, set);
+  }
+
+  private getWorkspacesForCluster(clusterId: string): Set<string> {
+    const set = this.clusterWorkspaces.get(clusterId);
+    if (set && set.size > 0) return set;
+    const fallback = new Set<string>(["fleet-default", "fleet-local"]);
+    this.clusterWorkspaces.set(clusterId, fallback);
+    return fallback;
+  }
+
   private async populateClusterNameMap(): Promise<void> {
     this.clusterStats = new Map();
+    this.clusterWorkspaces.clear();
     if (this.k8sLocator) {
       try {
         const clusters = await this.k8sLocator.listRancherClusterDetails();
@@ -421,7 +443,6 @@ export class FleetEntityProvider implements EntityProvider {
       locationKey: this.locationKey,
       autoTechdocsRef: cluster.autoTechdocsRef,
     };
-    const workspaceNamespace = "default";
 
     try {
       const [nodeGroups, mdGroups, versions, vmGroups] = await Promise.all([
@@ -439,6 +460,7 @@ export class FleetEntityProvider implements EntityProvider {
         const clusterId = group.clusterId;
         const clusterName =
           this.clusterNameMap?.get(clusterId) ?? group.clusterName ?? clusterId;
+        const workspaces = this.getWorkspacesForCluster(clusterId);
         const nodes = group.nodes ?? [];
 
         let readyCount = 0;
@@ -458,28 +480,30 @@ export class FleetEntityProvider implements EntityProvider {
           );
           if (isReady) readyCount += 1;
 
-          const entity = mapNodeToResource({
-            nodeId,
-            nodeName,
-            clusterId,
-            clusterName,
-            workspaceNamespace,
-            context,
-            details: {
-              labels: node.metadata?.labels ?? undefined,
-              capacity: node.status?.capacity ?? undefined,
-              allocatable: node.status?.allocatable ?? undefined,
-              taints,
-              addresses,
-              providerId: node.spec?.providerID,
-              kubeletVersion: node.status?.nodeInfo?.kubeletVersion,
-              osImage: node.status?.nodeInfo?.osImage,
-              containerRuntime:
-                node.status?.nodeInfo?.containerRuntimeVersion,
-              architecture: node.status?.nodeInfo?.architecture,
-            },
-          });
-          batch.resources.push(entity);
+          for (const workspaceNamespace of workspaces) {
+            const entity = mapNodeToResource({
+              nodeId,
+              nodeName,
+              clusterId,
+              clusterName,
+              workspaceNamespace,
+              context,
+              details: {
+                labels: node.metadata?.labels ?? undefined,
+                capacity: node.status?.capacity ?? undefined,
+                allocatable: node.status?.allocatable ?? undefined,
+                taints,
+                addresses,
+                providerId: node.spec?.providerID,
+                kubeletVersion: node.status?.nodeInfo?.kubeletVersion,
+                osImage: node.status?.nodeInfo?.osImage,
+                containerRuntime:
+                  node.status?.nodeInfo?.containerRuntimeVersion,
+                architecture: node.status?.nodeInfo?.architecture,
+              },
+            });
+            batch.resources.push(entity);
+          }
         }
 
         const stats = this.clusterStats?.get(clusterId) ?? {};
@@ -493,29 +517,32 @@ export class FleetEntityProvider implements EntityProvider {
         const clusterId = group.clusterId;
         const clusterName =
           this.clusterNameMap?.get(clusterId) ?? group.clusterName ?? clusterId;
+        const workspaces = this.getWorkspacesForCluster(clusterId);
         const items = group.items ?? [];
         for (const md of items) {
           const mdName = md.metadata?.name;
           if (!mdName) continue;
           const selector = md.spec?.selector?.matchLabels ?? {};
           const labels = md.metadata?.labels ?? md.spec?.template?.metadata?.labels;
-          const entity = mapMachineDeploymentToResource({
-            mdName,
-            clusterId,
-            clusterName,
-            workspaceNamespace,
-            context,
-            details: {
-              namespace: md.metadata?.namespace,
-              labels: labels && Object.keys(labels).length ? labels : undefined,
-              selector: Object.keys(selector).length ? selector : undefined,
-              replicas: md.spec?.replicas,
-              availableReplicas: md.status?.availableReplicas,
-              readyReplicas: md.status?.readyReplicas,
-              updatedReplicas: md.status?.updatedReplicas,
-            },
-          });
-          batch.resources.push(entity);
+          for (const workspaceNamespace of workspaces) {
+            const entity = mapMachineDeploymentToResource({
+              mdName,
+              clusterId,
+              clusterName,
+              workspaceNamespace,
+              context,
+              details: {
+                namespace: md.metadata?.namespace,
+                labels: labels && Object.keys(labels).length ? labels : undefined,
+                selector: Object.keys(selector).length ? selector : undefined,
+                replicas: md.spec?.replicas,
+                availableReplicas: md.status?.availableReplicas,
+                readyReplicas: md.status?.readyReplicas,
+                updatedReplicas: md.status?.updatedReplicas,
+              },
+            });
+            batch.resources.push(entity);
+          }
         }
 
         const stats = this.clusterStats?.get(clusterId) ?? {};
@@ -528,29 +555,32 @@ export class FleetEntityProvider implements EntityProvider {
         const clusterId = group.clusterId;
         const clusterName =
           this.clusterNameMap?.get(clusterId) ?? group.clusterName ?? clusterId;
+        const workspaces = this.getWorkspacesForCluster(clusterId);
         const items = group.items ?? [];
         for (const vm of items) {
           const vmName = vm.metadata?.name;
           if (!vmName) continue;
           const requests = vm.spec?.template?.spec?.domain?.resources?.requests;
           const limits = vm.spec?.template?.spec?.domain?.resources?.limits;
-          const entity = mapVirtualMachineToResource({
-            vmName,
-            clusterId,
-            clusterName,
-            workspaceNamespace,
-            context,
-            details: {
-              namespace: vm.metadata?.namespace,
-              labels: vm.metadata?.labels,
-              requests: requests && Object.keys(requests).length ? requests : undefined,
-              limits: limits && Object.keys(limits).length ? limits : undefined,
-              runStrategy: vm.spec?.runStrategy,
-              printableStatus: vm.status?.printableStatus,
-              ready: vm.status?.ready,
-            },
-          });
-          batch.resources.push(entity);
+          for (const workspaceNamespace of workspaces) {
+            const entity = mapVirtualMachineToResource({
+              vmName,
+              clusterId,
+              clusterName,
+              workspaceNamespace,
+              context,
+              details: {
+                namespace: vm.metadata?.namespace,
+                labels: vm.metadata?.labels,
+                requests: requests && Object.keys(requests).length ? requests : undefined,
+                limits: limits && Object.keys(limits).length ? limits : undefined,
+                runStrategy: vm.spec?.runStrategy,
+                printableStatus: vm.status?.printableStatus,
+                ready: vm.status?.ready,
+              },
+            });
+            batch.resources.push(entity);
+          }
         }
 
         const stats = this.clusterStats?.get(clusterId) ?? {};
@@ -815,6 +845,7 @@ export class FleetEntityProvider implements EntityProvider {
             extractWorkspaceNamespaceFromBundleDeploymentNamespace(
               bd.metadata?.namespace ?? "",
             ) ?? "default";
+          this.recordWorkspaceNamespace(clusterId, workspaceNamespace);
           // Cluster entity
           // Try to find friendly name from Rancher clusters if available
           const derivedClusterId = deriveFriendlyClusterName(clusterId);
