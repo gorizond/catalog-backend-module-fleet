@@ -416,7 +416,10 @@ export class FleetK8sLocator {
   > {
     const clusters = await this.fetchRancherClusters();
     const harvesterClusters = clusters.filter(
-      (c) => c.labels?.["provider.cattle.io"] === "harvester",
+      (c) =>
+        c.labels?.["provider.cattle.io"] === "harvester" ||
+        c.provider === "harvester" ||
+        c.driver === "harvester",
     );
     const results: Array<{
       clusterId: string;
