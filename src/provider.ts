@@ -96,6 +96,7 @@ export class FleetEntityProvider implements EntityProvider {
   private connection?: EntityProviderConnection;
   private clusterNameMap?: Map<string, string>;
   private readonly clusterWorkspaces: Map<string, Set<string>> = new Map();
+  private readonly clusterPrimaryWorkspace: Map<string, string> = new Map();
   private clusterStats?: Map<
     string,
     {
@@ -309,9 +310,14 @@ export class FleetEntityProvider implements EntityProvider {
     const set = this.clusterWorkspaces.get(clusterId) ?? new Set<string>();
     set.add(trimmed);
     this.clusterWorkspaces.set(clusterId, set);
+    if (!this.clusterPrimaryWorkspace.has(clusterId)) {
+      this.clusterPrimaryWorkspace.set(clusterId, trimmed);
+    }
   }
 
   private getPrimaryWorkspace(clusterId: string): string {
+    const fromCluster = this.clusterPrimaryWorkspace.get(clusterId);
+    if (fromCluster) return fromCluster;
     const set = this.clusterWorkspaces.get(clusterId);
     if (set && set.size > 0) {
       if (set.has("fleet-default")) return "fleet-default";
@@ -348,6 +354,9 @@ export class FleetEntityProvider implements EntityProvider {
               stats.version ?? c.rancherKubernetesEngineConfig?.kubernetesVersion;
             stats.driver = c.driver ?? c.labels?.["provider.cattle.io"];
             this.clusterStats?.set(c.id, stats);
+            if (c.namespace) {
+              this.clusterPrimaryWorkspace.set(c.id, c.namespace);
+            }
           }
 
           this.logger.debug(
@@ -417,6 +426,12 @@ export class FleetEntityProvider implements EntityProvider {
         const stats = this.clusterStats?.get(c.id) ?? {};
         stats.driver = c.driver ?? c.labels?.["provider.cattle.io"];
         this.clusterStats?.set(c.id, stats);
+        if ((c as { namespace?: string }).namespace) {
+          this.clusterPrimaryWorkspace.set(
+            c.id,
+            (c as { namespace?: string }).namespace as string,
+          );
+        }
       }
       this.logger.debug(
         `Loaded ${this.clusterNameMap.size} cluster names from Rancher`,
@@ -832,12 +847,14 @@ export class FleetEntityProvider implements EntityProvider {
           bd.metadata?.namespace ?? "",
         );
         if (clusterId) {
-        const workspaceNamespace =
-          extractWorkspaceNamespaceFromBundleDeploymentNamespace(
+          const fromBd = extractWorkspaceNamespaceFromBundleDeploymentNamespace(
             bd.metadata?.namespace ?? "",
-          ) ?? "fleet-default";
-        this.recordWorkspaceNamespace(clusterId, workspaceNamespace);
-        // Cluster entity
+          );
+          if (fromBd) {
+            this.recordWorkspaceNamespace(clusterId, fromBd);
+          }
+          const workspaceNamespace = this.getPrimaryWorkspace(clusterId);
+          // Cluster entity
           // Try to find friendly name from Rancher clusters if available
           const derivedClusterId = deriveFriendlyClusterName(clusterId);
           const clusterFriendlyName =

@@ -1,5 +1,6 @@
 import { ConfigReader } from "@backstage/config";
 import { FleetEntityProvider } from "./provider";
+import { createEmptyBatch } from "./entityMapper";
 
 // ============================================================================
 // Mock Logger
@@ -337,6 +338,37 @@ describe("FleetEntityProvider.fromConfig", () => {
 // ============================================================================
 
 describe("FleetEntityProvider", () => {
+  const mockConnection = {
+    applyMutation: jest.fn(),
+    refresh: jest.fn(),
+  };
+
+  const mockCluster = {
+    name: "test-cluster",
+    url: "https://rancher.example.com",
+    namespaces: [{ name: "fleet-default" }],
+  } as any;
+
+  const createOptions = (overrides: any = {}) => ({
+    id: "test",
+    clusters: overrides.clusters ?? [mockCluster],
+    schedule: {
+      frequency: { minutes: 10 },
+      timeout: { minutes: 5 },
+      initialDelay: { seconds: 15 },
+    },
+    logger: createMockLogger() as any,
+    concurrency: 1,
+    k8sLocator: overrides.k8sLocator,
+  });
+
+  const connection: any = mockConnection;
+
+  beforeEach(() => {
+    mockConnection.applyMutation.mockReset();
+    mockConnection.refresh.mockReset();
+  });
+
   it("should return provider name", () => {
     const config = new ConfigReader({
       catalog: {
@@ -413,6 +445,79 @@ describe("FleetEntityProvider", () => {
     await expect(
       providers[0].connect(mockConnection as any),
     ).resolves.not.toThrow();
+  });
+
+  it("uses cluster namespace from Rancher as primary workspace", async () => {
+    const emitted: any[] = [];
+    const provider = new FleetEntityProvider(
+      createOptions({
+        k8sLocator: {
+          listRancherClusterDetails: async () => [
+            {
+              id: "c-1",
+              name: "c-1",
+              namespace: "fleet-foo",
+              labels: {},
+            } as any,
+          ],
+          listClusterNodesDetailed: async () => [],
+          listClusterMachineDeployments: async () => [],
+          listClusterVersions: async () => [],
+          listHarvesterVirtualMachines: async () => [],
+        } as any,
+      }),
+    );
+
+    await provider.connect({
+      applyMutation: async (m: any) => {
+        const batch = m.entities.map((e: any) => e.entity);
+        emitted.push(...batch);
+      },
+    } as any);
+
+    await provider.run();
+
+    const clusters = emitted.filter((e) =>
+      e?.metadata?.tags?.includes("kubernetes-cluster"),
+    );
+    expect(clusters).toHaveLength(1);
+    expect(clusters[0].metadata?.namespace).toBe("fleet-foo");
+  });
+
+  it("falls back to fleet-default when Rancher namespace is missing", async () => {
+    const emitted: any[] = [];
+    const provider = new FleetEntityProvider(
+      createOptions({
+        k8sLocator: {
+          listRancherClusterDetails: async () => [
+            {
+              id: "c-1",
+              name: "c-1",
+              labels: {},
+            } as any,
+          ],
+          listClusterNodesDetailed: async () => [],
+          listClusterMachineDeployments: async () => [],
+          listClusterVersions: async () => [],
+          listHarvesterVirtualMachines: async () => [],
+        } as any,
+      }),
+    );
+
+    await provider.connect({
+      applyMutation: async (m: any) => {
+        const batch = m.entities.map((e: any) => e.entity);
+        emitted.push(...batch);
+      },
+    } as any);
+
+    await provider.run();
+
+    const clusters = emitted.filter((e) =>
+      e?.metadata?.tags?.includes("kubernetes-cluster"),
+    );
+    expect(clusters).toHaveLength(1);
+    expect(clusters[0].metadata?.namespace).toBe("fleet-default");
   });
 });
 

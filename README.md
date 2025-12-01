@@ -228,8 +228,14 @@ Entities are automatically annotated for the Backstage Kubernetes plugin:
 - `backstage.io/kubernetes-id`: Links to the Fleet cluster
 - `backstage.io/kubernetes-namespace`: Target deployment namespace
 - `backstage.io/kubernetes-label-selector`: Helm release selector (`System: app.kubernetes.io/name=<gitrepo>; Component: app.kubernetes.io/instance=<release>`)
-- Downstream clusters are discovered automatically (via Rancher `/v3/clusters`, friendly names preserved) and emitted as `Resource` `kubernetes-cluster`; BundleDeployments depend on the target cluster resource.
+- Downstream clusters are discovered automatically (via Rancher `/v3/clusters`, friendly names preserved) and emitted as `Resource` `kubernetes-cluster`; BundleDeployments depend on the target cluster resource. Primary workspace for a cluster берётся из Rancher `metadata.namespace` (если задан), иначе `fleet-default`.
 - CustomResources per cluster are pulled dynamically from BundleDeployment `status.resources` so `kubernetes.clusterLocatorMethods[].customResources` stays in sync with Fleet.
+
+Additional topology enrichment
+- Nodes: full Kubernetes Node objects via Rancher proxy (`/k8s/clusters/{id}/api/v1/nodes`) — labels, taints, capacity/allocatable, providerID, kubelet/CRI versions, OS/arch.
+- MachineDeployments (Cluster API) via `/k8s/clusters/{id}/apis/cluster.x-k8s.io/v1beta1/machinedeployments` — replicas/ready/labels/selectors.
+- Harvester VMs via `/k8s/clusters/{id}/apis/kubevirt.io/v1/virtualmachines` for clusters with `provider.cattle.io=harvester` — resources, status, labels.
+- Cluster annotations: driver, Kubernetes version, node/MD/VM counts, Rancher state/transition/conditions, etcd backup config.
 
 This enables the Kubernetes tab in Backstage to show pods, deployments, and other resources for Fleet-managed applications.
 
