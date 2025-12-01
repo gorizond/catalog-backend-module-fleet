@@ -416,12 +416,26 @@ export class FleetK8sLocator {
     }>
   > {
     const clusters = await this.fetchRancherClusters();
-    const harvesterClusters = clusters.filter(
+    let harvesterClusters = clusters.filter(
       (c) =>
         c.labels?.["provider.cattle.io"] === "harvester" ||
         c.provider === "harvester" ||
         c.driver === "harvester",
     );
+
+    // Fallback: some clusters may not expose provider labels; try name/id heuristic
+    if (harvesterClusters.length === 0) {
+      harvesterClusters = clusters.filter(
+        (c) =>
+          c.name?.toLowerCase().includes("harvester") ||
+          c.id.toLowerCase().includes("harvester"),
+      );
+      if (harvesterClusters.length === 0) {
+        this.logger.debug(
+          "FleetK8sLocator: no Harvester clusters detected (by provider/driver or name heuristic)",
+        );
+      }
+    }
     const results: Array<{
       clusterId: string;
       clusterName?: string;
